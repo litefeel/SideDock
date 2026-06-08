@@ -2,12 +2,14 @@
   <Package
     Name="SideDock"
     Manufacturer="SideDock"
-    Version="0.0.1"
+    Version="0.0.2"
     UpgradeCode="{F2D60774-1B54-40A5-A4A2-2738A7EB2F10}"
     Scope="perUser">
 
     <MajorUpgrade DowngradeErrorMessage="A newer version of SideDock is already installed." />
     <MediaTemplate EmbedCab="yes" />
+    <Icon Id="SideDockIcon" SourceFile="src\SideDock\Assets\SideDock.ico" />
+    <Property Id="ARPPRODUCTICON" Value="SideDockIcon" />
 
     <Feature Id="MainFeature" Title="SideDock" Level="1">
       <ComponentGroupRef Id="SideDockComponents" />
@@ -33,7 +35,8 @@
           Directory="ProgramMenuSideDockFolder"
           Name="SideDock"
           Target="[INSTALLFOLDER]SideDock.exe"
-          WorkingDirectory="INSTALLFOLDER" />
+          WorkingDirectory="INSTALLFOLDER"
+          Icon="SideDockIcon" />
         <RegistryValue
           Root="HKCU"
           Key="Software\Microsoft\Windows\CurrentVersion\Run"
