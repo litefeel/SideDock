@@ -24,6 +24,12 @@ Build the installer:
 scripts\Build-Installer.cmd
 ```
 
+Build a specific installer version:
+
+```cmd
+scripts\Build-Installer.cmd 0.0.3 win-x64
+```
+
 This publishes a self-contained `win-x64` release with `PublishReadyToRun=true`, then builds:
 
 ```text
@@ -41,6 +47,12 @@ msiexec /i artifacts\installer\SideDock-0.0.2-win-x64.msi
 The MSI installs SideDock for the current user under `%LOCALAPPDATA%\Programs\SideDock`, creates a Start Menu shortcut, and enables startup by writing the current user's `Run` registry key.
 
 Uninstall from Windows Settings under installed apps, or use Programs and Features. Windows Installer removes the files, shortcut, and startup registry value.
+
+## Release
+
+Create and publish a GitHub Release with a tag like `v0.0.3`. The `Release MSI` workflow will build `SideDock-0.0.3-win-x64.msi` from that tag and attach it to the release assets.
+
+Release tags must use three numeric version parts, optionally prefixed with `v`, because Windows Installer product versions do not support prerelease labels.
 
 ## Visual Studio
 

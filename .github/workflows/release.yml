@@ -1,0 +1,74 @@
+name: Release MSI
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Release tag to build and attach the MSI to, for example v0.0.2
+        required: true
+        type: string
+      runtime:
+        description: Windows runtime identifier
+        required: false
+        default: win-x64
+        type: choice
+        options:
+          - win-x64
+          - win-x86
+          - win-arm64
+
+permissions:
+  contents: write
+
+jobs:
+  build-msi:
+    name: Build and attach MSI
+    runs-on: windows-latest
+
+    env:
+      RUNTIME: ${{ github.event.inputs.runtime || 'win-x64' }}
+
+    steps:
+      - name: Resolve release version
+        id: release
+        shell: pwsh
+        run: |
+          $tag = '${{ github.event.release.tag_name || github.event.inputs.tag }}'
+          if ($tag -notmatch '^v?(\d+\.\d+\.\d+)$') {
+            throw "Release tag '$tag' must be a semantic version like v1.2.3 or 1.2.3. Windows Installer product versions cannot include prerelease labels."
+          }
+
+          $version = $Matches[1]
+          "tag=$tag" >> $env:GITHUB_OUTPUT
+          "version=$version" >> $env:GITHUB_OUTPUT
+
+      - name: Check out release tag
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.release.outputs.tag }}
+
+      - name: Set up .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Build MSI
+        shell: cmd
+        run: scripts\Build-Installer.cmd ${{ steps.release.outputs.version }} %RUNTIME%
+
+      - name: Upload workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: SideDock-${{ steps.release.outputs.version }}-${{ env.RUNTIME }}.msi
+          path: artifacts\installer\SideDock-${{ steps.release.outputs.version }}-${{ env.RUNTIME }}.msi
+          if-no-files-found: error
+
+      - name: Attach MSI to GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: pwsh
+        run: |
+          $asset = "artifacts\installer\SideDock-${{ steps.release.outputs.version }}-${{ env.RUNTIME }}.msi"
+          gh release upload '${{ steps.release.outputs.tag }}' $asset --clobber
