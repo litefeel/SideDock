@@ -4,7 +4,7 @@ setlocal
 set ROOT=%~dp0..
 pushd "%ROOT%"
 
-set VERSION=0.01
+set VERSION=0.0.1
 
 if not defined DOTNET_CLI_HOME set DOTNET_CLI_HOME=%CD%\.dotnet_home
 if not defined NUGET_PACKAGES set NUGET_PACKAGES=%CD%\.nuget\packages
