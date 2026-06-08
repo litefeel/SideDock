@@ -71,7 +71,7 @@ public partial class MainWindow : Window
 
     private async void OnLoaded(object sender, RoutedEventArgs e)
     {
-        DockToLeftEdge(_expandedWidth);
+        DockToRightEdge(_expandedWidth);
         Collapse();
         _cursorTimer.Start();
         await InitializeWebViewsAsync();
@@ -390,7 +390,6 @@ public partial class MainWindow : Window
     private async void OnToolSelectionChanged(object sender, System.Windows.Controls.SelectionChangedEventArgs e)
     {
         await ShowSelectedToolAsync();
-        Expand();
     }
 
     private async void OnToolListMouseLeftButtonUp(object sender, MouseButtonEventArgs e)
@@ -506,7 +505,7 @@ public partial class MainWindow : Window
         }
 
         ApplyTopmostState();
-        DockToLeftEdge(_isExpanded ? _expandedWidth : _settings.CollapsedWidth);
+        DockToRightEdge(_isExpanded ? _expandedWidth : _settings.CollapsedWidth);
     }
 
     private void OnCursorTimerTick(object? sender, EventArgs e)
@@ -546,7 +545,7 @@ public partial class MainWindow : Window
         ContentPanel.Visibility = Visibility.Visible;
         ResizeGrip.Visibility = Visibility.Visible;
         ApplyTopmostState();
-        DockToLeftEdge(_expandedWidth);
+        DockToRightEdge(_expandedWidth);
     }
 
     private void Collapse(bool force = false)
@@ -562,7 +561,7 @@ public partial class MainWindow : Window
         ContentColumn.Width = new GridLength(0);
         ResizeColumn.Width = new GridLength(0);
         ApplyTopmostState();
-        DockToLeftEdge(_settings.CollapsedWidth);
+        DockToRightEdge(_settings.CollapsedWidth);
     }
 
     private void OnResizeGripMouseLeftButtonDown(object sender, MouseButtonEventArgs e)
@@ -584,7 +583,7 @@ public partial class MainWindow : Window
             return;
         }
 
-        var requestedWidth = e.GetPosition(this).X;
+        var requestedWidth = Math.Max(ActualWidth, Width) - e.GetPosition(this).X;
         _expandedWidth = ClampExpandedWidth(requestedWidth);
         ResizeWindowOnly(_expandedWidth);
         e.Handled = true;
@@ -599,7 +598,7 @@ public partial class MainWindow : Window
 
         _isResizing = false;
         ResizeGrip.ReleaseMouseCapture();
-        DockToLeftEdge(_expandedWidth);
+        DockToRightEdge(_expandedWidth);
         e.Handled = true;
     }
 
@@ -609,7 +608,7 @@ public partial class MainWindow : Window
         Height = SystemParameters.PrimaryScreenHeight;
     }
 
-    private void DockToLeftEdge(double width)
+    private void DockToRightEdge(double width)
     {
         var clampedWidth = _isExpanded
             ? ClampExpandedWidth(width)
@@ -624,7 +623,7 @@ public partial class MainWindow : Window
         }
 
         var workArea = SystemParameters.WorkArea;
-        Left = workArea.Left;
+        Left = workArea.Right - clampedWidth;
         Top = workArea.Top;
         Height = workArea.Height;
     }
@@ -735,7 +734,7 @@ public partial class MainWindow : Window
 
         if (msg is WmDisplayChange or WmSettingChange or WmDpiChanged)
         {
-            Dispatcher.BeginInvoke(() => DockToLeftEdge(_isExpanded ? _expandedWidth : _settings.CollapsedWidth));
+            Dispatcher.BeginInvoke(() => DockToRightEdge(_isExpanded ? _expandedWidth : _settings.CollapsedWidth));
         }
 
         return IntPtr.Zero;

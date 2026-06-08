@@ -9,7 +9,7 @@ internal sealed class AppBarManager
     private const int AbmRemove = 0x00000001;
     private const int AbmQueryPos = 0x00000002;
     private const int AbmSetPos = 0x00000003;
-    private const int AbeLeft = 0;
+    private const int AbeRight = 2;
     private const int SwpNoActivate = 0x0010;
     private const int SwpNoZOrder = 0x0004;
     private const int MonitorDefaultToNearest = 0x00000002;
@@ -57,23 +57,23 @@ internal sealed class AppBarManager
         var windowWidthPixels = Math.Max(reservedWidthPixels, DipsToPixels(windowWidthDips));
 
         var data = CreateData();
-        data.uEdge = AbeLeft;
+        data.uEdge = AbeRight;
         data.rc = new NativeRect
         {
-            Left = monitor.Left,
+            Left = monitor.Right - reservedWidthPixels,
             Top = monitor.Top,
-            Right = monitor.Left + reservedWidthPixels,
+            Right = monitor.Right,
             Bottom = monitor.Bottom
         };
 
         SHAppBarMessage(AbmQueryPos, ref data);
-        data.rc.Right = data.rc.Left + reservedWidthPixels;
+        data.rc.Left = data.rc.Right - reservedWidthPixels;
         SHAppBarMessage(AbmSetPos, ref data);
 
         SetWindowPos(
             _hwnd,
             nint.Zero,
-            data.rc.Left,
+            data.rc.Right - windowWidthPixels,
             data.rc.Top,
             windowWidthPixels,
             data.rc.Bottom - data.rc.Top,

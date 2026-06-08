@@ -22,9 +22,9 @@ Open `SideDock.slnx` in Visual Studio 2022 or later. Set `SideDock` as the start
 
 The app targets `net10.0-windows`, so Visual Studio must have the .NET 10 SDK and the .NET desktop development workload installed. The target machine also needs Microsoft Edge WebView2 Runtime.
 
-The sidebar starts as a persistent left-edge icon rail and always registers that rail as a Windows appbar, so maximized windows avoid the icon rail. The rail shows each site's favicon only; missing favicons use a default icon, and loaded favicons are cached under `%LOCALAPPDATA%\SideDock\Icons` for immediate display on the next launch.
+The sidebar starts as a persistent right-edge icon rail and always registers that rail as a Windows appbar, so maximized windows avoid the icon rail. The rail shows each site's favicon only; missing favicons use a default icon, and loaded favicons are cached under `%LOCALAPPDATA%\SideDock\Icons` for immediate display on the next launch.
 
-Click a site icon to expand the web panel. The app is always topmost. The expanded toolbar contains only open externally, pin, hide, and close-page buttons. Pin is shared across all sites.
+Only clicking a site icon expands the web panel. The app is always topmost. The expanded toolbar contains only open externally, pin, hide, and close-page buttons. Pin is shared across all sites.
 
 When pin is enabled, the expanded web panel is also registered as appbar space, so maximized windows avoid the full expanded width. When pin is disabled, only the icon rail reserves desktop space; the expanded web panel overlays other windows.
 
