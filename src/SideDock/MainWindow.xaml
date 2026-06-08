@@ -5,12 +5,14 @@
         Title="SideDock"
         Width="430"
         Height="720"
-        MinWidth="72"
+        MinWidth="48"
         MinHeight="320"
         ResizeMode="NoResize"
         WindowStyle="None"
         ShowInTaskbar="False"
         Background="#101318"
+        UseLayoutRounding="True"
+        SnapsToDevicePixels="True"
         Loaded="OnLoaded"
         SourceInitialized="OnSourceInitialized"
         Closing="OnClosing">
@@ -89,7 +91,7 @@
         <Grid x:Name="ShellGrid"
               Background="#101318">
             <Grid.ColumnDefinitions>
-                <ColumnDefinition x:Name="RailColumn" Width="72" />
+                <ColumnDefinition x:Name="RailColumn" Width="48" />
                 <ColumnDefinition x:Name="ContentColumn" Width="*" />
                 <ColumnDefinition x:Name="ResizeColumn" Width="18" />
             </Grid.ColumnDefinitions>
@@ -107,7 +109,7 @@
                              PreviewMouseLeftButtonUp="OnToolListMouseLeftButtonUp"
                              ScrollViewer.HorizontalScrollBarVisibility="Disabled"
                              ScrollViewer.VerticalScrollBarVisibility="Disabled"
-                             Margin="8,10,8,10">
+                             Margin="4,10,4,10">
                         <ListBox.ItemContainerStyle>
                             <Style TargetType="ListBoxItem">
                                 <Setter Property="HorizontalContentAlignment" Value="Stretch" />
@@ -140,28 +142,30 @@
                         </ListBox.ItemContainerStyle>
                         <ListBox.ItemTemplate>
                             <DataTemplate>
-                                <Grid Width="32"
-                                      Height="32"
+                                <Grid Width="24"
+                                      Height="24"
                                       ToolTip="{Binding Tool.Title}">
                                     <Border x:Name="DefaultIcon"
-                                            Width="28"
-                                            Height="28"
-                                            CornerRadius="6"
+                                            Width="24"
+                                            Height="24"
+                                            CornerRadius="0"
                                             Background="#222A36"
                                             HorizontalAlignment="Center"
                                             VerticalAlignment="Center">
                                         <TextBlock Text="&#xE774;"
                                                    FontFamily="Segoe MDL2 Assets"
-                                                   FontSize="16"
+                                                   FontSize="14"
                                                    Foreground="#D8DEE9"
                                                    HorizontalAlignment="Center"
                                                    VerticalAlignment="Center" />
                                     </Border>
                                     <Image x:Name="SiteIcon"
-                                           Width="28"
-                                           Height="28"
+                                           Width="24"
+                                           Height="24"
                                            Source="{Binding Icon}"
-                                           Stretch="Uniform"
+                                           Stretch="Fill"
+                                           RenderOptions.BitmapScalingMode="HighQuality"
+                                           SnapsToDevicePixels="True"
                                            HorizontalAlignment="Center"
                                            VerticalAlignment="Center" />
                                 </Grid>

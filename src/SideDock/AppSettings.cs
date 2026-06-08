@@ -8,7 +8,7 @@ public sealed class AppSettings
     public double DefaultExpandedWidth { get; set; } = 430;
     public double MinExpandedWidth { get; set; } = 360;
     public double MaxExpandedWidth { get; set; } = 0;
-    public double CollapsedWidth { get; set; } = 72;
+    public double CollapsedWidth { get; set; } = 48;
     public int AutoHideDelayMilliseconds { get; set; } = 600;
     public bool TopmostByDefault { get; set; } = true;
     public List<ToolDefinition> Tools { get; set; } = [];

@@ -3,7 +3,9 @@ using Microsoft.Web.WebView2.Wpf;
 using System.ComponentModel;
 using System.Diagnostics;
 using System.IO;
+using System.Net.Http;
 using System.Runtime.InteropServices;
+using System.Text.Json;
 using System.Windows;
 using System.Windows.Interop;
 using System.Windows.Input;
@@ -18,6 +20,17 @@ public partial class MainWindow : Window
     private const int WmSettingChange = 0x001A;
     private const int WmDpiChanged = 0x02E0;
     private const int AbnPosChanged = 0x00000001;
+    private const int DisplayIconSize = 24;
+
+    private static readonly HttpClient IconHttpClient = new()
+    {
+        Timeout = TimeSpan.FromSeconds(8)
+    };
+
+    private static readonly JsonSerializerOptions JsonOptions = new()
+    {
+        PropertyNameCaseInsensitive = true
+    };
 
     private readonly AppSettings _settings = AppSettings.Load();
     private readonly DispatcherTimer _cursorTimer;
@@ -143,9 +156,9 @@ public partial class MainWindow : Window
         browser.CoreWebView2.Settings.AreDefaultContextMenusEnabled = true;
         browser.CoreWebView2.Settings.AreDevToolsEnabled = true;
         browser.CoreWebView2.NavigationStarting += (_, _) => OnBrowserNavigationStarting(item.Tool);
-        browser.CoreWebView2.NavigationCompleted += (_, args) => OnBrowserNavigationCompleted(item.Tool, browser, args);
+        browser.CoreWebView2.NavigationCompleted += async (_, args) => await OnBrowserNavigationCompletedAsync(item, browser, args);
         browser.CoreWebView2.NewWindowRequested += (_, args) => OnNewWindowRequested(browser, args);
-        browser.CoreWebView2.FaviconChanged += async (_, _) => await CacheFaviconAsync(item, browser);
+        browser.CoreWebView2.FaviconChanged += async (_, _) => await CacheFallbackFaviconAsync(item, browser);
         browser.CoreWebView2.SourceChanged += (_, _) =>
         {
             if (IsCurrentTool(item.Tool))
@@ -174,7 +187,46 @@ public partial class MainWindow : Window
         }
     }
 
-    private async Task CacheFaviconAsync(ToolItem item, WebView2 browser)
+    private async Task CacheBestIconAsync(ToolItem item, WebView2 browser)
+    {
+        if (browser.CoreWebView2 is null)
+        {
+            return;
+        }
+
+        try
+        {
+            var script = """
+                (() => Array.from(document.querySelectorAll('link[rel]'))
+                    .filter(link => /icon/i.test(link.rel))
+                    .map(link => ({
+                        href: link.href,
+                        rel: link.rel,
+                        sizes: link.sizes ? link.sizes.value : ''
+                    })))()
+                """;
+            var json = await browser.CoreWebView2.ExecuteScriptAsync(script);
+            var candidates = JsonSerializer.Deserialize<List<IconCandidate>>(json, JsonOptions) ?? [];
+
+            foreach (var candidate in candidates
+                         .Where(candidate => IsSupportedIconCandidate(candidate.Href))
+                         .OrderByDescending(GetIconScore))
+            {
+                if (await TryDownloadAndCacheIconAsync(item, candidate.Href))
+                {
+                    return;
+                }
+            }
+
+            await CacheFallbackFaviconAsync(item, browser);
+        }
+        catch
+        {
+            await CacheFallbackFaviconAsync(item, browser);
+        }
+    }
+
+    private async Task CacheFallbackFaviconAsync(ToolItem item, WebView2 browser)
     {
         if (browser.CoreWebView2 is null || string.IsNullOrWhiteSpace(browser.CoreWebView2.FaviconUri))
         {
@@ -184,23 +236,50 @@ public partial class MainWindow : Window
         try
         {
             using var faviconStream = await browser.CoreWebView2.GetFaviconAsync(CoreWebView2FaviconImageFormat.Png);
-            var cachePath = GetIconCachePath(item.Tool);
-            Directory.CreateDirectory(Path.GetDirectoryName(cachePath)!);
-
-            await using (var fileStream = File.Create(cachePath))
-            {
-                await faviconStream.CopyToAsync(fileStream);
-            }
-
-            if (TryLoadIcon(cachePath, out var icon))
-            {
-                item.Icon = icon;
-            }
+            await CacheIconStreamAsync(item, faviconStream);
         }
         catch
         {
             // Keep the default icon when a site does not expose a usable favicon.
         }
+    }
+
+    private static async Task<bool> TryDownloadAndCacheIconAsync(ToolItem item, string href)
+    {
+        try
+        {
+            using var response = await IconHttpClient.GetAsync(href);
+            if (!response.IsSuccessStatusCode || !IsSupportedContentType(response.Content.Headers.ContentType?.MediaType))
+            {
+                return false;
+            }
+
+            await using var stream = await response.Content.ReadAsStreamAsync();
+            return await CacheIconStreamAsync(item, stream);
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private static async Task<bool> CacheIconStreamAsync(ToolItem item, Stream iconStream)
+    {
+        var cachePath = GetIconCachePath(item.Tool);
+        Directory.CreateDirectory(Path.GetDirectoryName(cachePath)!);
+
+        await using (var fileStream = File.Create(cachePath))
+        {
+            await iconStream.CopyToAsync(fileStream);
+        }
+
+        if (!TryLoadIcon(cachePath, out var icon))
+        {
+            return false;
+        }
+
+        item.Icon = icon;
+        return true;
     }
 
     private static bool TryLoadIcon(string path, out BitmapImage? icon)
@@ -217,7 +296,6 @@ public partial class MainWindow : Window
             var bitmap = new BitmapImage();
             bitmap.BeginInit();
             bitmap.CacheOption = BitmapCacheOption.OnLoad;
-            bitmap.DecodePixelWidth = 32;
             bitmap.StreamSource = stream;
             bitmap.EndInit();
             bitmap.Freeze();
@@ -230,6 +308,75 @@ public partial class MainWindow : Window
         }
     }
 
+    private static bool IsSupportedIconCandidate(string href)
+    {
+        if (string.IsNullOrWhiteSpace(href) || !Uri.TryCreate(href, UriKind.Absolute, out var uri))
+        {
+            return false;
+        }
+
+        var path = uri.AbsolutePath;
+        return !path.EndsWith(".svg", StringComparison.OrdinalIgnoreCase)
+            && !path.EndsWith(".webp", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool IsSupportedContentType(string? mediaType)
+    {
+        if (string.IsNullOrWhiteSpace(mediaType))
+        {
+            return true;
+        }
+
+        return mediaType.Equals("image/png", StringComparison.OrdinalIgnoreCase)
+            || mediaType.Equals("image/jpeg", StringComparison.OrdinalIgnoreCase)
+            || mediaType.Equals("image/jpg", StringComparison.OrdinalIgnoreCase)
+            || mediaType.Equals("image/x-icon", StringComparison.OrdinalIgnoreCase)
+            || mediaType.Equals("image/vnd.microsoft.icon", StringComparison.OrdinalIgnoreCase)
+            || mediaType.Equals("application/octet-stream", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static int GetIconScore(IconCandidate candidate)
+    {
+        var score = GetLargestDeclaredSize(candidate.Sizes);
+
+        if (candidate.Rel.Contains("apple-touch-icon", StringComparison.OrdinalIgnoreCase))
+        {
+            score += 1000;
+        }
+
+        if (score >= DisplayIconSize)
+        {
+            score += 500;
+        }
+
+        return score;
+    }
+
+    private static int GetLargestDeclaredSize(string sizes)
+    {
+        if (string.IsNullOrWhiteSpace(sizes))
+        {
+            return 0;
+        }
+
+        if (sizes.Equals("any", StringComparison.OrdinalIgnoreCase))
+        {
+            return 512;
+        }
+
+        var largest = 0;
+        foreach (var part in sizes.Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+        {
+            var dimensions = part.Split('x', 'X');
+            if (dimensions.Length == 2 && int.TryParse(dimensions[0], out var width))
+            {
+                largest = Math.Max(largest, width);
+            }
+        }
+
+        return largest;
+    }
+
     private static string GetIconCachePath(ToolDefinition tool)
     {
         var safeId = string.Concat(tool.Id.Select(ch => Path.GetInvalidFileNameChars().Contains(ch) ? '_' : ch));
@@ -237,7 +384,7 @@ public partial class MainWindow : Window
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
             "SideDock",
             "Icons",
-            $"{safeId}.png");
+            $"{safeId}.icon");
     }
 
     private async void OnToolSelectionChanged(object sender, System.Windows.Controls.SelectionChangedEventArgs e)
@@ -293,17 +440,22 @@ public partial class MainWindow : Window
         }
     }
 
-    private void OnBrowserNavigationCompleted(ToolDefinition tool, WebView2 browser, CoreWebView2NavigationCompletedEventArgs e)
+    private async Task OnBrowserNavigationCompletedAsync(ToolItem item, WebView2 browser, CoreWebView2NavigationCompletedEventArgs e)
     {
-        _toolStatuses[tool.Id] = e.IsSuccess ? "Ready" : $"Load failed: {e.WebErrorStatus}";
+        _toolStatuses[item.Tool.Id] = e.IsSuccess ? "Ready" : $"Load failed: {e.WebErrorStatus}";
 
-        if (!IsCurrentTool(tool))
+        if (e.IsSuccess)
+        {
+            await CacheBestIconAsync(item, browser);
+        }
+
+        if (!IsCurrentTool(item.Tool))
         {
             return;
         }
 
         UpdateNavigationState();
-        SetStatus(_toolStatuses[tool.Id]);
+        SetStatus(_toolStatuses[item.Tool.Id]);
     }
 
     private static void OnNewWindowRequested(WebView2 browser, CoreWebView2NewWindowRequestedEventArgs e)
@@ -610,4 +762,6 @@ public partial class MainWindow : Window
         public readonly int X;
         public readonly int Y;
     }
+
+    private sealed record IconCandidate(string Href, string Rel, string Sizes);
 }
