@@ -1,0 +1,55 @@
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+  <Package
+    Name="SideDock"
+    Manufacturer="SideDock"
+    Version="1.0.0"
+    UpgradeCode="{F2D60774-1B54-40A5-A4A2-2738A7EB2F10}"
+    Scope="perUser">
+
+    <MajorUpgrade DowngradeErrorMessage="A newer version of SideDock is already installed." />
+    <MediaTemplate EmbedCab="yes" />
+
+    <Feature Id="MainFeature" Title="SideDock" Level="1">
+      <ComponentGroupRef Id="SideDockComponents" />
+    </Feature>
+
+    <StandardDirectory Id="LocalAppDataFolder">
+      <Directory Id="LocalProgramsFolder" Name="Programs">
+        <Directory Id="INSTALLFOLDER" Name="SideDock" />
+      </Directory>
+    </StandardDirectory>
+
+    <StandardDirectory Id="ProgramMenuFolder">
+      <Directory Id="ProgramMenuSideDockFolder" Name="SideDock" />
+    </StandardDirectory>
+  </Package>
+
+  <Fragment>
+    <ComponentGroup Id="SideDockComponents" Directory="INSTALLFOLDER">
+      <Component Id="SideDockExeComponent" Guid="{DAD1D2D0-128C-497D-AE6D-C019933066F6}">
+        <File Id="SideDockExe" Source="$(var.PublishDir)\SideDock.exe" KeyPath="yes" />
+        <Shortcut
+          Id="SideDockStartMenuShortcut"
+          Directory="ProgramMenuSideDockFolder"
+          Name="SideDock"
+          Target="[INSTALLFOLDER]SideDock.exe"
+          WorkingDirectory="INSTALLFOLDER" />
+        <RegistryValue
+          Root="HKCU"
+          Key="Software\Microsoft\Windows\CurrentVersion\Run"
+          Name="SideDock"
+          Type="string"
+          Value="&quot;[INSTALLFOLDER]SideDock.exe&quot;" />
+      </Component>
+
+      <Component Id="AppSettingsComponent" Guid="{91B1B86E-52E7-4EC4-8493-8D6B7F5789D8}">
+        <File Id="AppSettingsJson" Source="$(var.PublishDir)\appsettings.json" KeyPath="yes" />
+      </Component>
+
+      <Component Id="ProgramMenuCleanupComponent" Directory="ProgramMenuSideDockFolder" Guid="{CF7605B6-7DF7-46EE-AC06-B933550648C6}">
+        <RemoveFolder Id="RemoveProgramMenuSideDockFolder" On="uninstall" />
+        <RegistryValue Root="HKCU" Key="Software\SideDock" Name="Installed" Type="integer" Value="1" KeyPath="yes" />
+      </Component>
+    </ComponentGroup>
+  </Fragment>
+</Wix>

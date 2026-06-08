@@ -92,8 +92,8 @@
         <Grid x:Name="ShellGrid"
               Background="Transparent">
             <Grid.ColumnDefinitions>
-                <ColumnDefinition x:Name="ContentColumn" Width="*" />
                 <ColumnDefinition x:Name="ResizeColumn" Width="18" />
+                <ColumnDefinition x:Name="ContentColumn" Width="*" />
                 <ColumnDefinition x:Name="RailColumn" Width="48" />
             </Grid.ColumnDefinitions>
 
@@ -185,7 +185,7 @@
             </Border>
 
             <Grid x:Name="ContentPanel"
-                  Grid.Column="0"
+                  Grid.Column="1"
                   Background="#0B0D11">
                 <Grid.RowDefinitions>
                     <RowDefinition Height="52" />
@@ -250,7 +250,7 @@
             </Grid>
 
             <Border x:Name="ResizeGrip"
-                    Grid.Column="1"
+                    Grid.Column="0"
                     HorizontalAlignment="Stretch"
                     Background="#01000000"
                     Panel.ZIndex="20"

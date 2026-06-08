@@ -7,8 +7,10 @@ using System.Net.Http;
 using System.Runtime.InteropServices;
 using System.Text.Json;
 using System.Windows;
+using System.Windows.Controls;
 using System.Windows.Interop;
 using System.Windows.Input;
+using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using System.Windows.Threading;
 
@@ -21,6 +23,8 @@ public partial class MainWindow : Window
     private const int WmDpiChanged = 0x02E0;
     private const int AbnPosChanged = 0x00000001;
     private const int DisplayIconSize = 24;
+    private const int SystemMetricCxScreen = 0;
+    private const int SystemMetricCyScreen = 1;
 
     private static readonly HttpClient IconHttpClient = new()
     {
@@ -44,6 +48,14 @@ public partial class MainWindow : Window
     private bool _isExpanded = true;
     private bool _isPinned;
     private bool _isResizing;
+    private double _resizeAnchorRight;
+    private double _resizeContentRight;
+    private double _pendingResizeWidth;
+    private Window? _resizePreviewWindow;
+    private Canvas? _resizePreviewCanvas;
+    private Border? _resizePreviewPanel;
+    private WebView2? _resizePreviewBrowser;
+    private bool _isContentHiddenForResize;
     private bool _areWebViewsReady;
     private HwndSource? _hwndSource;
     private AppBarManager? _appBarManager;
@@ -92,6 +104,8 @@ public partial class MainWindow : Window
         _cursorTimer.Stop();
         _hwndSource?.RemoveHook(WndProc);
         _appBarManager?.Unregister();
+        MoveResizePreviewBrowserBack();
+        CloseResizePreview();
 
         foreach (var browser in _browsers.Values)
         {
@@ -572,6 +586,12 @@ public partial class MainWindow : Window
         }
 
         _isResizing = true;
+        _resizeContentRight = GetElementRightDips(ContentPanel);
+        _resizeAnchorRight = _resizeContentRight + GetRailWidth();
+        _pendingResizeWidth = _expandedWidth;
+        ShowResizePreview();
+        MoveCurrentBrowserToResizePreview();
+        HideContentForResize();
         ResizeGrip.CaptureMouse();
         e.Handled = true;
     }
@@ -583,13 +603,25 @@ public partial class MainWindow : Window
             return;
         }
 
-        var requestedWidth = Math.Max(ActualWidth, Width) - e.GetPosition(this).X;
-        _expandedWidth = ClampExpandedWidth(requestedWidth);
-        ResizeWindowOnly(_expandedWidth);
+        var screenX = GetScreenXDips(e.GetPosition(this));
+        UpdatePendingResizeWidth(screenX);
         e.Handled = true;
     }
 
     private void OnResizeGripMouseLeftButtonUp(object sender, MouseButtonEventArgs e)
+    {
+        CompleteResize();
+        e.Handled = true;
+    }
+
+    private void UpdatePendingResizeWidth(double screenXDips)
+    {
+        var requestedWidth = _resizeAnchorRight - screenXDips;
+        _pendingResizeWidth = ClampExpandedWidth(requestedWidth);
+        UpdateResizePreview();
+    }
+
+    private void CompleteResize()
     {
         if (!_isResizing)
         {
@@ -597,15 +629,233 @@ public partial class MainWindow : Window
         }
 
         _isResizing = false;
-        ResizeGrip.ReleaseMouseCapture();
+        _expandedWidth = _pendingResizeWidth;
+        MoveResizePreviewBrowserBack();
+        CloseResizePreview();
+        RestoreContentAfterResize();
+        if (ResizeGrip.IsMouseCaptured)
+        {
+            ResizeGrip.ReleaseMouseCapture();
+        }
+
         DockToRightEdge(_expandedWidth);
+    }
+
+    private void ShowResizePreview()
+    {
+        _resizePreviewCanvas = new Canvas
+        {
+            Background = Brushes.Transparent
+        };
+
+        _resizePreviewPanel = new Border
+        {
+            Background = new SolidColorBrush(Color.FromRgb(11, 13, 17)),
+            BorderBrush = new SolidColorBrush(Color.FromArgb(220, 44, 125, 250)),
+            BorderThickness = new Thickness(1, 0, 1, 0),
+            ClipToBounds = true,
+            IsHitTestVisible = false
+        };
+        _resizePreviewCanvas.Children.Add(_resizePreviewPanel);
+
+        _resizePreviewWindow ??= new Window
+        {
+            Left = 0,
+            Width = SystemParameters.PrimaryScreenWidth,
+            Height = SystemParameters.PrimaryScreenHeight,
+            Top = 0,
+            WindowStyle = WindowStyle.None,
+            ResizeMode = ResizeMode.NoResize,
+            AllowsTransparency = true,
+            Background = new SolidColorBrush(Color.FromArgb(36, 0, 0, 0)),
+            Content = _resizePreviewCanvas,
+            ShowActivated = false,
+            ShowInTaskbar = false,
+            Topmost = true
+        };
+
+        _resizePreviewWindow.MouseMove += OnResizePreviewMouseMove;
+        _resizePreviewWindow.MouseLeftButtonUp += OnResizePreviewMouseLeftButtonUp;
+
+        UpdateResizePreview();
+        if (!_resizePreviewWindow.IsVisible)
+        {
+            _resizePreviewWindow.Show();
+        }
+    }
+
+    private void OnResizePreviewMouseMove(object sender, MouseEventArgs e)
+    {
+        if (!_isResizing || _resizePreviewWindow is null)
+        {
+            return;
+        }
+
+        UpdatePendingResizeWidth(_resizePreviewWindow.Left + e.GetPosition(_resizePreviewWindow).X);
         e.Handled = true;
     }
 
-    private void ResizeWindowOnly(double width)
+    private void OnResizePreviewMouseLeftButtonUp(object sender, MouseButtonEventArgs e)
     {
-        Width = ClampExpandedWidth(width);
-        Height = SystemParameters.PrimaryScreenHeight;
+        CompleteResize();
+        e.Handled = true;
+    }
+
+    private void UpdateResizePreview()
+    {
+        if (_resizePreviewWindow is null || _resizePreviewPanel is null)
+        {
+            return;
+        }
+
+        var screenBounds = GetPrimaryScreenBoundsDips();
+        var gripWidth = ResizeColumn.ActualWidth > 0 ? ResizeColumn.ActualWidth : 18;
+        var contentPreviewLeft = _resizeAnchorRight - _pendingResizeWidth + gripWidth;
+        var previewLeft = Math.Round(contentPreviewLeft - screenBounds.Left);
+        var previewRight = Math.Round(_resizeContentRight - screenBounds.Left);
+        var contentPreviewWidth = Math.Max(1, previewRight - previewLeft);
+
+        Canvas.SetLeft(_resizePreviewPanel, previewLeft);
+        Canvas.SetTop(_resizePreviewPanel, 0);
+        _resizePreviewPanel.Width = contentPreviewWidth;
+        _resizePreviewPanel.Height = screenBounds.Height;
+
+        _resizePreviewWindow.Left = screenBounds.Left;
+        _resizePreviewWindow.Top = screenBounds.Top;
+        _resizePreviewWindow.Width = screenBounds.Width;
+        _resizePreviewWindow.Height = screenBounds.Height;
+    }
+
+    private void CloseResizePreview()
+    {
+        if (_resizePreviewWindow is not null)
+        {
+            _resizePreviewWindow.MouseMove -= OnResizePreviewMouseMove;
+            _resizePreviewWindow.MouseLeftButtonUp -= OnResizePreviewMouseLeftButtonUp;
+        }
+
+        _resizePreviewWindow?.Close();
+        _resizePreviewWindow = null;
+        _resizePreviewCanvas = null;
+        _resizePreviewPanel = null;
+        _resizePreviewBrowser = null;
+    }
+
+    private void MoveCurrentBrowserToResizePreview()
+    {
+        var browser = GetCurrentBrowser();
+        if (browser is null || _resizePreviewPanel is null)
+        {
+            return;
+        }
+
+        BrowserHost.Children.Remove(browser);
+        browser.Visibility = Visibility.Visible;
+        _resizePreviewPanel.Child = browser;
+        _resizePreviewBrowser = browser;
+
+        if (_resizePreviewWindow is not null)
+        {
+            _resizePreviewWindow.Topmost = false;
+            _resizePreviewWindow.Topmost = true;
+        }
+    }
+
+    private void MoveResizePreviewBrowserBack()
+    {
+        if (_resizePreviewBrowser is null)
+        {
+            return;
+        }
+
+        if (_resizePreviewPanel is not null)
+        {
+            _resizePreviewPanel.Child = null;
+        }
+
+        if (!BrowserHost.Children.Contains(_resizePreviewBrowser))
+        {
+            BrowserHost.Children.Add(_resizePreviewBrowser);
+        }
+
+        foreach (var (toolId, browser) in _browsers)
+        {
+            browser.Visibility = _currentItem is not null && toolId.Equals(_currentItem.Tool.Id, StringComparison.OrdinalIgnoreCase)
+                ? Visibility.Visible
+                : Visibility.Hidden;
+        }
+
+        _resizePreviewBrowser = null;
+    }
+
+    private void HideContentForResize()
+    {
+        if (_isContentHiddenForResize)
+        {
+            return;
+        }
+
+        ContentPanel.Visibility = Visibility.Hidden;
+        _isContentHiddenForResize = true;
+    }
+
+    private void RestoreContentAfterResize()
+    {
+        if (!_isContentHiddenForResize)
+        {
+            return;
+        }
+
+        ContentPanel.Visibility = _isExpanded ? Visibility.Visible : Visibility.Collapsed;
+        _isContentHiddenForResize = false;
+    }
+
+    private double GetScreenXDips(Point windowPoint)
+    {
+        var source = PresentationSource.FromVisual(this);
+        if (source?.CompositionTarget is null)
+        {
+            return Left + windowPoint.X;
+        }
+
+        var screenPixels = PointToScreen(windowPoint);
+        var screenDips = source.CompositionTarget.TransformFromDevice.Transform(screenPixels);
+        return screenDips.X;
+    }
+
+    private double GetElementRightDips(FrameworkElement element)
+    {
+        var source = PresentationSource.FromVisual(this);
+        if (source?.CompositionTarget is null)
+        {
+            return Left + element.TranslatePoint(new Point(element.ActualWidth, 0), this).X;
+        }
+
+        var rightPixels = element.PointToScreen(new Point(element.ActualWidth, 0));
+        var rightDips = source.CompositionTarget.TransformFromDevice.Transform(rightPixels);
+        return rightDips.X;
+    }
+
+    private double GetRailWidth()
+    {
+        return RailColumn.ActualWidth > 0
+            ? RailColumn.ActualWidth
+            : _settings.CollapsedWidth;
+    }
+
+    private Rect GetPrimaryScreenBoundsDips()
+    {
+        var source = PresentationSource.FromVisual(this);
+        if (source?.CompositionTarget is null)
+        {
+            return new Rect(0, 0, SystemParameters.PrimaryScreenWidth, SystemParameters.PrimaryScreenHeight);
+        }
+
+        var topLeft = source.CompositionTarget.TransformFromDevice.Transform(new Point(0, 0));
+        var bottomRight = source.CompositionTarget.TransformFromDevice.Transform(
+            new Point(GetSystemMetrics(SystemMetricCxScreen), GetSystemMetrics(SystemMetricCyScreen)));
+
+        return new Rect(topLeft, bottomRight);
     }
 
     private void DockToRightEdge(double width)
@@ -754,6 +1004,9 @@ public partial class MainWindow : Window
 
     [DllImport("user32.dll")]
     private static extern bool GetCursorPos(out NativePoint point);
+
+    [DllImport("user32.dll")]
+    private static extern int GetSystemMetrics(int nIndex);
 
     [StructLayout(LayoutKind.Sequential)]
     private readonly struct NativePoint

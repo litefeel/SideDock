@@ -16,6 +16,32 @@ $env:NUGET_PACKAGES = "$PWD\.nuget\packages"
 dotnet run --project src\SideDock\SideDock.csproj
 ```
 
+## Build MSI Installer
+
+Build the installer:
+
+```cmd
+scripts\Build-Installer.cmd
+```
+
+This publishes a self-contained `win-x64` release with `PublishReadyToRun=true`, then builds:
+
+```text
+artifacts\installer\SideDock-win-x64.msi
+```
+
+WPF does not support .NET NativeAOT, so this project uses ReadyToRun AOT publishing instead of NativeAOT.
+
+Install:
+
+```cmd
+msiexec /i artifacts\installer\SideDock-win-x64.msi
+```
+
+The MSI installs SideDock for the current user under `%LOCALAPPDATA%\Programs\SideDock`, creates a Start Menu shortcut, and enables startup by writing the current user's `Run` registry key.
+
+Uninstall from Windows Settings under installed apps, or use Programs and Features. Windows Installer removes the files, shortcut, and startup registry value.
+
 ## Visual Studio
 
 Open `SideDock.slnx` in Visual Studio 2022 or later. Set `SideDock` as the startup project if it is not selected automatically, restore NuGet packages, then press `F5` to debug or `Ctrl+F5` to run without debugging.
