@@ -9,8 +9,9 @@
         MinHeight="320"
         ResizeMode="NoResize"
         WindowStyle="None"
+        AllowsTransparency="True"
         ShowInTaskbar="False"
-        Background="#101318"
+        Background="Transparent"
         UseLayoutRounding="True"
         SnapsToDevicePixels="True"
         Loaded="OnLoaded"
@@ -89,7 +90,7 @@
 
     <Grid x:Name="Root">
         <Grid x:Name="ShellGrid"
-              Background="#101318">
+              Background="Transparent">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition x:Name="RailColumn" Width="48" />
                 <ColumnDefinition x:Name="ContentColumn" Width="*" />
@@ -97,8 +98,8 @@
             </Grid.ColumnDefinitions>
 
             <Border Grid.Column="0"
-                    Background="#151922"
-                    BorderBrush="#262D3A"
+                    Background="#33FFFFFF"
+                    BorderBrush="#55FFFFFF"
                     BorderThickness="0,0,1,0">
                 <DockPanel LastChildFill="True">
                     <ListBox x:Name="ToolList"
@@ -129,7 +130,7 @@
                                             </Border>
                                             <ControlTemplate.Triggers>
                                                 <Trigger Property="IsMouseOver" Value="True">
-                                                    <Setter TargetName="ItemBorder" Property="Background" Value="#232A36" />
+                                                    <Setter TargetName="ItemBorder" Property="Background" Value="#33FFFFFF" />
                                                 </Trigger>
                                                 <Trigger Property="IsSelected" Value="True">
                                                     <Setter TargetName="ItemBorder" Property="Background" Value="#2C7DFA" />
