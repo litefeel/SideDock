@@ -2,7 +2,7 @@
   <Package
     Name="SideDock"
     Manufacturer="SideDock"
-    Version="1.0.0"
+    Version="0.0.1"
     UpgradeCode="{F2D60774-1B54-40A5-A4A2-2738A7EB2F10}"
     Scope="perUser">
 

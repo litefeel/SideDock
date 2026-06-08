@@ -4,6 +4,8 @@ setlocal
 set ROOT=%~dp0..
 pushd "%ROOT%"
 
+set VERSION=0.01
+
 if not defined DOTNET_CLI_HOME set DOTNET_CLI_HOME=%CD%\.dotnet_home
 if not defined NUGET_PACKAGES set NUGET_PACKAGES=%CD%\.nuget\packages
 
@@ -16,7 +18,7 @@ if /i "%RUNTIME%"=="win-arm64" set WIX_ARCH=arm64
 
 set PUBLISH_DIR=%CD%\artifacts\publish\SideDock\app
 set MSI_DIR=%CD%\artifacts\installer
-set MSI_PATH=%MSI_DIR%\SideDock-%RUNTIME%.msi
+set MSI_PATH=%MSI_DIR%\SideDock-%VERSION%-%RUNTIME%.msi
 
 if exist "%PUBLISH_DIR%" rmdir /s /q "%PUBLISH_DIR%"
 if not exist "%MSI_DIR%" mkdir "%MSI_DIR%"
