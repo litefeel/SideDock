@@ -7,6 +7,7 @@ using System.Runtime.InteropServices;
 using System.Windows;
 using System.Windows.Interop;
 using System.Windows.Input;
+using System.Windows.Media.Imaging;
 using System.Windows.Threading;
 
 namespace SideDock;
@@ -20,10 +21,12 @@ public partial class MainWindow : Window
 
     private readonly AppSettings _settings = AppSettings.Load();
     private readonly DispatcherTimer _cursorTimer;
+    private readonly List<ToolItem> _toolItems;
     private readonly Dictionary<string, WebView2> _browsers = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, string> _toolStatuses = new(StringComparer.OrdinalIgnoreCase);
     private DateTime? _cursorLeftAt;
-    private ToolDefinition? _currentTool;
+    private ToolItem? _currentItem;
+    private CoreWebView2Environment? _webViewEnvironment;
     private double _expandedWidth;
     private bool _isExpanded = true;
     private bool _isPinned;
@@ -39,10 +42,11 @@ public partial class MainWindow : Window
         _expandedWidth = ClampExpandedWidth(_settings.DefaultExpandedWidth);
         Width = _expandedWidth;
         MinWidth = _settings.CollapsedWidth;
-        Topmost = _settings.TopmostByDefault;
-        TopmostButton.IsChecked = Topmost;
+        Topmost = true;
 
-        ToolList.ItemsSource = _settings.Tools;
+        _toolItems = _settings.Tools.Select(tool => new ToolItem(tool)).ToList();
+        LoadCachedIcons();
+        ToolList.ItemsSource = _toolItems;
         ToolList.SelectedIndex = 0;
 
         _cursorTimer = new DispatcherTimer
@@ -92,11 +96,11 @@ public partial class MainWindow : Window
                 "WebView2");
 
             Directory.CreateDirectory(userDataFolder);
-            var environment = await CoreWebView2Environment.CreateAsync(userDataFolder: userDataFolder);
+            _webViewEnvironment = await CoreWebView2Environment.CreateAsync(userDataFolder: userDataFolder);
 
-            foreach (var tool in _settings.Tools)
+            foreach (var item in _toolItems)
             {
-                await CreateBrowserAsync(environment, tool);
+                await CreateBrowserAsync(item);
             }
 
             _areWebViewsReady = true;
@@ -117,8 +121,13 @@ public partial class MainWindow : Window
         }
     }
 
-    private async Task CreateBrowserAsync(CoreWebView2Environment environment, ToolDefinition tool)
+    private async Task CreateBrowserAsync(ToolItem item)
     {
+        if (_webViewEnvironment is null || _browsers.ContainsKey(item.Tool.Id))
+        {
+            return;
+        }
+
         var browser = new WebView2
         {
             Visibility = Visibility.Hidden,
@@ -126,62 +135,152 @@ public partial class MainWindow : Window
             VerticalAlignment = VerticalAlignment.Stretch
         };
 
-        _browsers[tool.Id] = browser;
-        _toolStatuses[tool.Id] = "Loading...";
+        _browsers[item.Tool.Id] = browser;
+        _toolStatuses[item.Tool.Id] = "Loading...";
         BrowserHost.Children.Add(browser);
 
-        await browser.EnsureCoreWebView2Async(environment);
+        await browser.EnsureCoreWebView2Async(_webViewEnvironment);
         browser.CoreWebView2.Settings.AreDefaultContextMenusEnabled = true;
         browser.CoreWebView2.Settings.AreDevToolsEnabled = true;
-        browser.CoreWebView2.NavigationStarting += (_, _) => OnBrowserNavigationStarting(tool);
-        browser.CoreWebView2.NavigationCompleted += (_, args) => OnBrowserNavigationCompleted(tool, browser, args);
+        browser.CoreWebView2.NavigationStarting += (_, _) => OnBrowserNavigationStarting(item.Tool);
+        browser.CoreWebView2.NavigationCompleted += (_, args) => OnBrowserNavigationCompleted(item.Tool, browser, args);
         browser.CoreWebView2.NewWindowRequested += (_, args) => OnNewWindowRequested(browser, args);
+        browser.CoreWebView2.FaviconChanged += async (_, _) => await CacheFaviconAsync(item, browser);
         browser.CoreWebView2.SourceChanged += (_, _) =>
         {
-            if (IsCurrentTool(tool))
+            if (IsCurrentTool(item.Tool))
             {
                 UpdateNavigationState();
             }
         };
 
-        browser.CoreWebView2.Navigate(tool.Url);
+        browser.CoreWebView2.Navigate(item.Tool.Url);
 
-        if (IsCurrentTool(tool))
+        if (IsCurrentTool(item.Tool))
         {
             ShowSelectedTool();
         }
     }
 
-    private void OnToolSelectionChanged(object sender, System.Windows.Controls.SelectionChangedEventArgs e)
+    private void LoadCachedIcons()
     {
-        ShowSelectedTool();
-        Expand();
+        foreach (var item in _toolItems)
+        {
+            var cachePath = GetIconCachePath(item.Tool);
+            if (TryLoadIcon(cachePath, out var icon))
+            {
+                item.Icon = icon;
+            }
+        }
     }
 
-    private void OnToolListMouseLeftButtonUp(object sender, MouseButtonEventArgs e)
+    private async Task CacheFaviconAsync(ToolItem item, WebView2 browser)
     {
-        Expand();
-    }
-
-    private void ShowSelectedTool()
-    {
-        if (ToolList.SelectedItem is not ToolDefinition tool)
+        if (browser.CoreWebView2 is null || string.IsNullOrWhiteSpace(browser.CoreWebView2.FaviconUri))
         {
             return;
         }
 
-        _currentTool = tool;
-        TitleText.Text = tool.Title;
+        try
+        {
+            using var faviconStream = await browser.CoreWebView2.GetFaviconAsync(CoreWebView2FaviconImageFormat.Png);
+            var cachePath = GetIconCachePath(item.Tool);
+            Directory.CreateDirectory(Path.GetDirectoryName(cachePath)!);
+
+            await using (var fileStream = File.Create(cachePath))
+            {
+                await faviconStream.CopyToAsync(fileStream);
+            }
+
+            if (TryLoadIcon(cachePath, out var icon))
+            {
+                item.Icon = icon;
+            }
+        }
+        catch
+        {
+            // Keep the default icon when a site does not expose a usable favicon.
+        }
+    }
+
+    private static bool TryLoadIcon(string path, out BitmapImage? icon)
+    {
+        icon = null;
+        if (!File.Exists(path))
+        {
+            return false;
+        }
+
+        try
+        {
+            using var stream = File.OpenRead(path);
+            var bitmap = new BitmapImage();
+            bitmap.BeginInit();
+            bitmap.CacheOption = BitmapCacheOption.OnLoad;
+            bitmap.DecodePixelWidth = 32;
+            bitmap.StreamSource = stream;
+            bitmap.EndInit();
+            bitmap.Freeze();
+            icon = bitmap;
+            return true;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private static string GetIconCachePath(ToolDefinition tool)
+    {
+        var safeId = string.Concat(tool.Id.Select(ch => Path.GetInvalidFileNameChars().Contains(ch) ? '_' : ch));
+        return Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+            "SideDock",
+            "Icons",
+            $"{safeId}.png");
+    }
+
+    private async void OnToolSelectionChanged(object sender, System.Windows.Controls.SelectionChangedEventArgs e)
+    {
+        await ShowSelectedToolAsync();
+        Expand();
+    }
+
+    private async void OnToolListMouseLeftButtonUp(object sender, MouseButtonEventArgs e)
+    {
+        await ShowSelectedToolAsync();
+        Expand();
+    }
+
+    private async Task ShowSelectedToolAsync()
+    {
+        if (ToolList.SelectedItem is ToolItem item && !_browsers.ContainsKey(item.Tool.Id))
+        {
+            await CreateBrowserAsync(item);
+        }
+
+        ShowSelectedTool();
+    }
+
+    private void ShowSelectedTool()
+    {
+        if (ToolList.SelectedItem is not ToolItem item)
+        {
+            return;
+        }
+
+        _currentItem = item;
+        TitleText.Text = item.Tool.Title;
         UrlText.Text = GetCurrentUrl();
 
         foreach (var (toolId, browser) in _browsers)
         {
-            browser.Visibility = toolId.Equals(tool.Id, StringComparison.OrdinalIgnoreCase)
+            browser.Visibility = toolId.Equals(item.Tool.Id, StringComparison.OrdinalIgnoreCase)
                 ? Visibility.Visible
                 : Visibility.Hidden;
         }
 
-        SetStatus(_toolStatuses.TryGetValue(tool.Id, out var status) ? status : "Waiting for WebView2...");
+        SetStatus(_toolStatuses.TryGetValue(item.Tool.Id, out var status) ? status : "Waiting for WebView2...");
         UpdateNavigationState();
     }
 
@@ -216,37 +315,39 @@ public partial class MainWindow : Window
         }
     }
 
-    private void OnBackClick(object sender, RoutedEventArgs e)
-    {
-        var browser = GetCurrentBrowser();
-        if (browser?.CoreWebView2.CanGoBack == true)
-        {
-            browser.CoreWebView2.GoBack();
-        }
-    }
-
-    private void OnForwardClick(object sender, RoutedEventArgs e)
-    {
-        var browser = GetCurrentBrowser();
-        if (browser?.CoreWebView2.CanGoForward == true)
-        {
-            browser.CoreWebView2.GoForward();
-        }
-    }
-
-    private void OnRefreshClick(object sender, RoutedEventArgs e)
-    {
-        GetCurrentBrowser()?.CoreWebView2.Reload();
-    }
-
     private void OnOpenExternalClick(object sender, RoutedEventArgs e)
     {
         OpenExternal(GetCurrentUrl());
     }
 
+    private void OnHideClick(object sender, RoutedEventArgs e)
+    {
+        Collapse(force: true);
+    }
+
+    private void OnClosePageClick(object sender, RoutedEventArgs e)
+    {
+        if (_currentItem is null)
+        {
+            Collapse(force: true);
+            return;
+        }
+
+        if (_browsers.Remove(_currentItem.Tool.Id, out var browser))
+        {
+            BrowserHost.Children.Remove(browser);
+            browser.Dispose();
+        }
+
+        _toolStatuses[_currentItem.Tool.Id] = "Closed";
+        SetStatus("Closed");
+        Collapse(force: true);
+    }
+
     private void OnPinChanged(object sender, RoutedEventArgs e)
     {
         _isPinned = PinButton.IsChecked == true;
+        PinIconText.Text = _isPinned ? "\uE718" : "\uE77A";
         if (_isPinned)
         {
             Expand();
@@ -254,11 +355,6 @@ public partial class MainWindow : Window
 
         ApplyTopmostState();
         DockToLeftEdge(_isExpanded ? _expandedWidth : _settings.CollapsedWidth);
-    }
-
-    private void OnTopmostChanged(object sender, RoutedEventArgs e)
-    {
-        ApplyTopmostState();
     }
 
     private void OnCursorTimerTick(object? sender, EventArgs e)
@@ -301,9 +397,9 @@ public partial class MainWindow : Window
         DockToLeftEdge(_expandedWidth);
     }
 
-    private void Collapse()
+    private void Collapse(bool force = false)
     {
-        if (_isPinned)
+        if (_isPinned && !force)
         {
             return;
         }
@@ -390,17 +486,12 @@ public partial class MainWindow : Window
 
     private void UpdateNavigationState()
     {
-        if (!_areWebViewsReady || _currentTool is null)
+        if (!_areWebViewsReady || _currentItem is null)
         {
-            BackButton.IsEnabled = false;
-            ForwardButton.IsEnabled = false;
             return;
         }
 
-        var browser = GetCurrentBrowser();
         UrlText.Text = GetCurrentUrl();
-        BackButton.IsEnabled = browser?.CoreWebView2.CanGoBack == true;
-        ForwardButton.IsEnabled = browser?.CoreWebView2.CanGoForward == true;
     }
 
     private string GetCurrentUrl()
@@ -411,19 +502,19 @@ public partial class MainWindow : Window
             return browser.Source.AbsoluteUri;
         }
 
-        return _currentTool?.Url ?? "about:blank";
+        return _currentItem?.Tool.Url ?? "about:blank";
     }
 
     private WebView2? GetCurrentBrowser()
     {
-        return _currentTool is not null && _browsers.TryGetValue(_currentTool.Id, out var browser)
+        return _currentItem is not null && _browsers.TryGetValue(_currentItem.Tool.Id, out var browser)
             ? browser
             : null;
     }
 
     private bool IsCurrentTool(ToolDefinition tool)
     {
-        return _currentTool?.Id.Equals(tool.Id, StringComparison.OrdinalIgnoreCase) == true;
+        return _currentItem?.Tool.Id.Equals(tool.Id, StringComparison.OrdinalIgnoreCase) == true;
     }
 
     private double GetReservedWidth(double windowWidth)
@@ -446,7 +537,7 @@ public partial class MainWindow : Window
 
     private void ApplyTopmostState()
     {
-        Topmost = TopmostButton.IsChecked == true || (_isExpanded && !_isPinned);
+        Topmost = true;
     }
 
     private void OpenExternal(string? url)
@@ -471,7 +562,10 @@ public partial class MainWindow : Window
 
     private void SetStatus(string message)
     {
-        StatusText.Text = message;
+        if (string.IsNullOrWhiteSpace(UrlText.Text) || UrlText.Text == "about:blank")
+        {
+            UrlText.Text = message;
+        }
     }
 
     private IntPtr WndProc(IntPtr hwnd, int msg, IntPtr wParam, IntPtr lParam, ref bool handled)

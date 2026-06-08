@@ -4,5 +4,6 @@ obj/
 .dotnet_home/
 .nuget/
 .buildverify/
+.codex-build/
 *.user
 *.suo

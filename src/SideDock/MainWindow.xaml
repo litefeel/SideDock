@@ -14,6 +14,77 @@
         Loaded="OnLoaded"
         SourceInitialized="OnSourceInitialized"
         Closing="OnClosing">
+    <Window.Resources>
+        <Style x:Key="HeaderIconButtonStyle" TargetType="{x:Type Button}">
+            <Setter Property="Width" Value="34" />
+            <Setter Property="Height" Value="34" />
+            <Setter Property="Margin" Value="4,0,0,0" />
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="BorderBrush" Value="Transparent" />
+            <Setter Property="Foreground" Value="#D8DEE9" />
+            <Setter Property="FontFamily" Value="Segoe MDL2 Assets" />
+            <Setter Property="FontSize" Value="15" />
+            <Setter Property="Cursor" Value="Hand" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="{x:Type Button}">
+                        <Border x:Name="ButtonChrome"
+                                Background="{TemplateBinding Background}"
+                                BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="1"
+                                CornerRadius="4">
+                            <ContentPresenter HorizontalAlignment="Center"
+                                              VerticalAlignment="Center" />
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="ButtonChrome" Property="Background" Value="#232A36" />
+                                <Setter TargetName="ButtonChrome" Property="BorderBrush" Value="#364153" />
+                            </Trigger>
+                            <Trigger Property="IsPressed" Value="True">
+                                <Setter TargetName="ButtonChrome" Property="Background" Value="#2C7DFA" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <Style x:Key="HeaderToggleButtonStyle" TargetType="{x:Type ToggleButton}">
+            <Setter Property="Width" Value="34" />
+            <Setter Property="Height" Value="34" />
+            <Setter Property="Margin" Value="4,0,0,0" />
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="BorderBrush" Value="Transparent" />
+            <Setter Property="Foreground" Value="#D8DEE9" />
+            <Setter Property="Cursor" Value="Hand" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="{x:Type ToggleButton}">
+                        <Border x:Name="ButtonChrome"
+                                Background="{TemplateBinding Background}"
+                                BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="1"
+                                CornerRadius="4">
+                            <ContentPresenter HorizontalAlignment="Center"
+                                              VerticalAlignment="Center" />
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="ButtonChrome" Property="Background" Value="#232A36" />
+                                <Setter TargetName="ButtonChrome" Property="BorderBrush" Value="#364153" />
+                            </Trigger>
+                            <Trigger Property="IsChecked" Value="True">
+                                <Setter TargetName="ButtonChrome" Property="Background" Value="#2C7DFA" />
+                                <Setter TargetName="ButtonChrome" Property="BorderBrush" Value="#4A91FF" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+    </Window.Resources>
+
     <Grid x:Name="Root">
         <Grid x:Name="ShellGrid"
               Background="#101318">
@@ -28,49 +99,19 @@
                     BorderBrush="#262D3A"
                     BorderThickness="0,0,1,0">
                 <DockPanel LastChildFill="True">
-                    <StackPanel DockPanel.Dock="Top"
-                                Margin="10,12,10,8">
-                        <TextBlock Text="SD"
-                                   HorizontalAlignment="Center"
-                                   Foreground="#F4F7FB"
-                                   FontSize="18"
-                                   FontWeight="SemiBold"
-                                   Margin="0,0,0,12" />
-
-                        <ToggleButton x:Name="PinButton"
-                                      Height="38"
-                                      Margin="0,0,0,8"
-                                      ToolTip="Pin sidebar"
-                                      Checked="OnPinChanged"
-                                      Unchecked="OnPinChanged">
-                            <TextBlock Text="PIN"
-                                       FontSize="11"
-                                       FontWeight="SemiBold" />
-                        </ToggleButton>
-
-                        <ToggleButton x:Name="TopmostButton"
-                                      Height="38"
-                                      Margin="0,0,0,8"
-                                      ToolTip="Keep on top"
-                                      Checked="OnTopmostChanged"
-                                      Unchecked="OnTopmostChanged">
-                            <TextBlock Text="TOP"
-                                       FontSize="11"
-                                       FontWeight="SemiBold" />
-                        </ToggleButton>
-                    </StackPanel>
-
                     <ListBox x:Name="ToolList"
                              BorderThickness="0"
                              Background="Transparent"
                              Foreground="#E8EDF5"
                              SelectionChanged="OnToolSelectionChanged"
                              PreviewMouseLeftButtonUp="OnToolListMouseLeftButtonUp"
-                             ScrollViewer.HorizontalScrollBarVisibility="Disabled">
+                             ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                             ScrollViewer.VerticalScrollBarVisibility="Disabled"
+                             Margin="8,10,8,10">
                         <ListBox.ItemContainerStyle>
                             <Style TargetType="ListBoxItem">
                                 <Setter Property="HorizontalContentAlignment" Value="Stretch" />
-                                <Setter Property="Margin" Value="8,4" />
+                                <Setter Property="Margin" Value="0,4" />
                                 <Setter Property="Padding" Value="0" />
                                 <Setter Property="Background" Value="Transparent" />
                                 <Setter Property="BorderThickness" Value="0" />
@@ -99,10 +140,39 @@
                         </ListBox.ItemContainerStyle>
                         <ListBox.ItemTemplate>
                             <DataTemplate>
-                                <TextBlock Text="{Binding IconKey}"
-                                           FontSize="12"
-                                           FontWeight="SemiBold"
-                                           ToolTip="{Binding Title}" />
+                                <Grid Width="32"
+                                      Height="32"
+                                      ToolTip="{Binding Tool.Title}">
+                                    <Border x:Name="DefaultIcon"
+                                            Width="28"
+                                            Height="28"
+                                            CornerRadius="6"
+                                            Background="#222A36"
+                                            HorizontalAlignment="Center"
+                                            VerticalAlignment="Center">
+                                        <TextBlock Text="&#xE774;"
+                                                   FontFamily="Segoe MDL2 Assets"
+                                                   FontSize="16"
+                                                   Foreground="#D8DEE9"
+                                                   HorizontalAlignment="Center"
+                                                   VerticalAlignment="Center" />
+                                    </Border>
+                                    <Image x:Name="SiteIcon"
+                                           Width="28"
+                                           Height="28"
+                                           Source="{Binding Icon}"
+                                           Stretch="Uniform"
+                                           HorizontalAlignment="Center"
+                                           VerticalAlignment="Center" />
+                                </Grid>
+                                <DataTemplate.Triggers>
+                                    <DataTrigger Binding="{Binding HasIcon}" Value="False">
+                                        <Setter TargetName="SiteIcon" Property="Visibility" Value="Collapsed" />
+                                    </DataTrigger>
+                                    <DataTrigger Binding="{Binding HasIcon}" Value="True">
+                                        <Setter TargetName="DefaultIcon" Property="Visibility" Value="Collapsed" />
+                                    </DataTrigger>
+                                </DataTemplate.Triggers>
                             </DataTemplate>
                         </ListBox.ItemTemplate>
                     </ListBox>
@@ -115,7 +185,6 @@
                 <Grid.RowDefinitions>
                     <RowDefinition Height="52" />
                     <RowDefinition Height="*" />
-                    <RowDefinition Height="30" />
                 </Grid.RowDefinitions>
 
                 <Border Grid.Row="0"
@@ -144,32 +213,28 @@
                         <StackPanel Grid.Column="1"
                                     Orientation="Horizontal"
                                     VerticalAlignment="Center">
-                            <Button x:Name="BackButton"
-                                    Width="32"
-                                    Height="32"
-                                    Margin="4,0,0,0"
-                                    Content="&lt;"
-                                    ToolTip="Back"
-                                    Click="OnBackClick" />
-                            <Button x:Name="ForwardButton"
-                                    Width="32"
-                                    Height="32"
-                                    Margin="4,0,0,0"
-                                    Content="&gt;"
-                                    ToolTip="Forward"
-                                    Click="OnForwardClick" />
-                            <Button Width="32"
-                                    Height="32"
-                                    Margin="4,0,0,0"
-                                    Content="R"
-                                    ToolTip="Refresh"
-                                    Click="OnRefreshClick" />
-                            <Button Width="32"
-                                    Height="32"
-                                    Margin="4,0,0,0"
-                                    Content="O"
+                            <Button Style="{StaticResource HeaderIconButtonStyle}"
+                                    Content="&#xE8A7;"
                                     ToolTip="Open externally"
                                     Click="OnOpenExternalClick" />
+                            <ToggleButton x:Name="PinButton"
+                                          Style="{StaticResource HeaderToggleButtonStyle}"
+                                          ToolTip="Pin sidebar"
+                                          Checked="OnPinChanged"
+                                          Unchecked="OnPinChanged">
+                                <TextBlock x:Name="PinIconText"
+                                           Text="&#xE77A;"
+                                           FontFamily="Segoe MDL2 Assets"
+                                           FontSize="15" />
+                            </ToggleButton>
+                            <Button Style="{StaticResource HeaderIconButtonStyle}"
+                                    Content="&#xE921;"
+                                    ToolTip="Hide"
+                                    Click="OnHideClick" />
+                            <Button Style="{StaticResource HeaderIconButtonStyle}"
+                                    Content="&#xE8BB;"
+                                    ToolTip="Close page"
+                                    Click="OnClosePageClick" />
                         </StackPanel>
                     </Grid>
                 </Border>
@@ -177,19 +242,6 @@
                 <Grid x:Name="BrowserHost"
                       Grid.Row="1"
                       Background="#0B0D11" />
-
-                <Border Grid.Row="2"
-                        Background="#111722"
-                        BorderBrush="#262D3A"
-                        BorderThickness="0,1,0,0">
-                    <TextBlock x:Name="StatusText"
-                               Margin="10,0"
-                               VerticalAlignment="Center"
-                               Foreground="#AAB4C4"
-                               FontSize="11"
-                               TextTrimming="CharacterEllipsis"
-                               Text="Starting..." />
-                </Border>
             </Grid>
 
             <Border x:Name="ResizeGrip"
