@@ -83,7 +83,7 @@ Only clicking a site icon expands the web panel. The app is always topmost. The 
 
 When pin is enabled, the expanded web panel is also registered as appbar space, so maximized windows avoid the full expanded width. When pin is disabled, only the icon rail reserves desktop space; the expanded web panel overlays other windows.
 
-The expanded width is capped dynamically at the current screen width minus the persistent icon rail width.
+The expanded width is capped dynamically at the current screen width minus the persistent icon rail width. Dragging the resize grip saves the expanded width to `%LOCALAPPDATA%\SideDock\appsettings.json`, and the next app launch uses that saved width.
 
 Each configured site gets its own WebView2 instance, so switching icons restores that site's existing page immediately. The hide button collapses the panel while keeping page instances alive. The close button disposes the current page and collapses the panel; selecting that site again creates a fresh WebView2 instance.
 

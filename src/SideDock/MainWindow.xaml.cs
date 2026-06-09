@@ -610,6 +610,18 @@ public partial class MainWindow : Window
         SettingsButton.ContextMenu.IsOpen = true;
     }
 
+
+    private void SaveExpandedWidth()
+    {
+        var width = ClampExpandedWidth(_expandedWidth);
+        if (Math.Abs(_settings.DefaultExpandedWidth - width) < 0.5)
+        {
+            return;
+        }
+
+        _settings.DefaultExpandedWidth = width;
+        AppSettings.Save(_settings);
+    }
     private async void OnAddUrlClick(object sender, RoutedEventArgs e)
     {
         if (!TryPromptForToolDefinition(out var tool))
@@ -841,6 +853,7 @@ public partial class MainWindow : Window
 
         _isResizing = false;
         _expandedWidth = _pendingResizeWidth;
+        SaveExpandedWidth();
         MoveResizePreviewBrowserBack();
         CloseResizePreview();
         RestoreContentAfterResize();
