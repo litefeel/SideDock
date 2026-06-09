@@ -11,6 +11,7 @@ public sealed class AppSettings
     public double CollapsedWidth { get; set; } = 48;
     public int AutoHideDelayMilliseconds { get; set; } = 600;
     public bool TopmostByDefault { get; set; } = true;
+    public string ThemeMode { get; set; } = nameof(AppThemeMode.System);
     public List<ToolDefinition> Tools { get; set; } = [];
 
     public static string UserSettingsPath => Path.Combine(
@@ -63,7 +64,7 @@ public sealed class AppSettings
                 return false;
             }
 
-            loadedSettings.DefaultExpandedWidth = Math.Max(loadedSettings.DefaultExpandedWidth, loadedSettings.MinExpandedWidth);
+            loadedSettings.Normalize();
             settings = loadedSettings;
 
             return true;
@@ -87,6 +88,29 @@ public sealed class AppSettings
             ]
         };
     }
+
+    public void Normalize()
+    {
+        DefaultExpandedWidth = Math.Max(DefaultExpandedWidth, MinExpandedWidth);
+        ThemeMode = NormalizeThemeMode(ThemeMode).ToString();
+    }
+
+    public static AppThemeMode NormalizeThemeMode(string? value)
+    {
+        return value?.Trim().ToLowerInvariant() switch
+        {
+            "dark" or "dork" => AppThemeMode.Dark,
+            "light" => AppThemeMode.Light,
+            _ => AppThemeMode.System
+        };
+    }
+}
+
+public enum AppThemeMode
+{
+    Dark,
+    Light,
+    System
 }
 
 public sealed record ToolDefinition(

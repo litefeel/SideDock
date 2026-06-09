@@ -85,6 +85,8 @@ When pin is enabled, the expanded web panel is also registered as appbar space, 
 
 The expanded width is capped dynamically at the current screen width minus the persistent icon rail width. Dragging the resize grip saves the expanded width to `%LOCALAPPDATA%\SideDock\appsettings.json`, and the next app launch uses that saved width.
 
+The settings menu supports `Dark`, `Light`, and `System` theme modes. `System` follows the Windows app theme preference.
+
 Each configured site gets its own WebView2 instance, so switching icons restores that site's existing page immediately. The hide button collapses the panel while keeping page instances alive. The close button disposes the current page and collapses the panel; selecting that site again creates a fresh WebView2 instance.
 
 ## Configure Tools
@@ -96,3 +98,4 @@ Edit `src\SideDock\appsettings.json` to change the fixed web tools. The supporte
 - `Url`
 - `IconKey`
 - `OpenExternalFallbackEnabled`
+- `ThemeMode`: `Dark`, `Light`, or `System`

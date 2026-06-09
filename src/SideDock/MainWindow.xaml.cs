@@ -1,5 +1,6 @@
 using Microsoft.Web.WebView2.Core;
 using Microsoft.Web.WebView2.Wpf;
+using Microsoft.Win32;
 using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.Diagnostics;
@@ -66,6 +67,7 @@ public partial class MainWindow : Window
     public MainWindow()
     {
         InitializeComponent();
+        ApplyTheme();
 
         _expandedWidth = ClampExpandedWidth(_settings.DefaultExpandedWidth);
         Width = _expandedWidth;
@@ -605,12 +607,104 @@ public partial class MainWindow : Window
             return;
         }
 
+        UpdateSettingsMenuChecks();
         SettingsButton.ContextMenu.PlacementTarget = SettingsButton;
         SettingsButton.ContextMenu.Placement = System.Windows.Controls.Primitives.PlacementMode.Left;
         SettingsButton.ContextMenu.IsOpen = true;
     }
 
+    private void OnThemeMenuItemClick(object sender, RoutedEventArgs e)
+    {
+        if (sender is not MenuItem { Tag: string themeMode })
+        {
+            return;
+        }
 
+        _settings.ThemeMode = AppSettings.NormalizeThemeMode(themeMode).ToString();
+        AppSettings.Save(_settings);
+        ApplyTheme();
+        UpdateSettingsMenuChecks();
+    }
+
+    private void UpdateSettingsMenuChecks()
+    {
+        var themeMode = GetThemeMode();
+        ThemeDarkMenuItem.IsChecked = themeMode == AppThemeMode.Dark;
+        ThemeLightMenuItem.IsChecked = themeMode == AppThemeMode.Light;
+        ThemeSystemMenuItem.IsChecked = themeMode == AppThemeMode.System;
+    }
+
+    private AppThemeMode GetThemeMode()
+    {
+        return AppSettings.NormalizeThemeMode(_settings.ThemeMode);
+    }
+
+    private void ApplyTheme()
+    {
+        var themeMode = GetThemeMode();
+        var useLightTheme = themeMode == AppThemeMode.Light
+            || (themeMode == AppThemeMode.System && IsSystemLightTheme());
+
+        if (useLightTheme)
+        {
+            SetThemeBrush("HeaderButtonForeground", Color.FromRgb(33, 38, 48));
+            SetThemeBrush("HeaderButtonHoverBackground", Color.FromRgb(232, 237, 245));
+            SetThemeBrush("HeaderButtonHoverBorder", Color.FromRgb(202, 211, 224));
+            SetThemeBrush("HeaderButtonCheckedBackground", Color.FromRgb(44, 125, 250));
+            SetThemeBrush("HeaderButtonCheckedBorder", Color.FromRgb(37, 99, 235));
+            SetThemeBrush("RailBackground", Color.FromArgb(236, 245, 247, 251));
+            SetThemeBrush("RailBorderBrush", Color.FromArgb(220, 202, 211, 224));
+            SetThemeBrush("ToolListForeground", Color.FromRgb(33, 38, 48));
+            SetThemeBrush("ToolItemHoverBackground", Color.FromArgb(180, 226, 232, 240));
+            SetThemeBrush("ToolItemSelectedBackground", Color.FromRgb(44, 125, 250));
+            SetThemeBrush("DefaultIconBackground", Color.FromRgb(230, 235, 243));
+            SetThemeBrush("DefaultIconForeground", Color.FromRgb(61, 70, 86));
+            SetThemeBrush("ContentBackground", Color.FromRgb(250, 251, 253));
+            SetThemeBrush("HeaderBackground", Color.FromRgb(241, 244, 248));
+            SetThemeBrush("HeaderBorderBrush", Color.FromRgb(215, 222, 232));
+            SetThemeBrush("TitleForeground", Color.FromRgb(16, 24, 39));
+            SetThemeBrush("UrlForeground", Color.FromRgb(96, 108, 128));
+            SetThemeBrush("ResizePreviewBackground", Color.FromRgb(250, 251, 253));
+            return;
+        }
+
+        SetThemeBrush("HeaderButtonForeground", Color.FromRgb(216, 222, 233));
+        SetThemeBrush("HeaderButtonHoverBackground", Color.FromRgb(35, 42, 54));
+        SetThemeBrush("HeaderButtonHoverBorder", Color.FromRgb(54, 65, 83));
+        SetThemeBrush("HeaderButtonCheckedBackground", Color.FromRgb(44, 125, 250));
+        SetThemeBrush("HeaderButtonCheckedBorder", Color.FromRgb(74, 145, 255));
+        SetThemeBrush("RailBackground", Color.FromArgb(51, 255, 255, 255));
+        SetThemeBrush("RailBorderBrush", Color.FromArgb(85, 255, 255, 255));
+        SetThemeBrush("ToolListForeground", Color.FromRgb(232, 237, 245));
+        SetThemeBrush("ToolItemHoverBackground", Color.FromArgb(51, 255, 255, 255));
+        SetThemeBrush("ToolItemSelectedBackground", Color.FromRgb(44, 125, 250));
+        SetThemeBrush("DefaultIconBackground", Color.FromRgb(34, 42, 54));
+        SetThemeBrush("DefaultIconForeground", Color.FromRgb(216, 222, 233));
+        SetThemeBrush("ContentBackground", Color.FromRgb(11, 13, 17));
+        SetThemeBrush("HeaderBackground", Color.FromRgb(17, 23, 34));
+        SetThemeBrush("HeaderBorderBrush", Color.FromRgb(38, 45, 58));
+        SetThemeBrush("TitleForeground", Color.FromRgb(244, 247, 251));
+        SetThemeBrush("UrlForeground", Color.FromRgb(141, 152, 170));
+        SetThemeBrush("ResizePreviewBackground", Color.FromRgb(11, 13, 17));
+    }
+
+    private void SetThemeBrush(string key, Color color)
+    {
+        Resources[key] = new SolidColorBrush(color);
+    }
+
+    private static bool IsSystemLightTheme()
+    {
+        try
+        {
+            using var key = Registry.CurrentUser.OpenSubKey(@"Software\Microsoft\Windows\CurrentVersion\Themes\Personalize");
+            return !Equals(key?.GetValue("AppsUseLightTheme"), 0);
+        }
+        catch
+        {
+            return true;
+        }
+    }
     private void SaveExpandedWidth()
     {
         var width = ClampExpandedWidth(_expandedWidth);
@@ -874,7 +968,7 @@ public partial class MainWindow : Window
 
         _resizePreviewPanel = new Border
         {
-            Background = new SolidColorBrush(Color.FromRgb(11, 13, 17)),
+            Background = Resources["ResizePreviewBackground"] as Brush ?? new SolidColorBrush(Color.FromRgb(11, 13, 17)),
             BorderBrush = new SolidColorBrush(Color.FromArgb(220, 44, 125, 250)),
             BorderThickness = new Thickness(1, 0, 1, 0),
             ClipToBounds = true,
@@ -1446,7 +1540,11 @@ public partial class MainWindow : Window
 
         if (msg is WmDisplayChange or WmSettingChange or WmDpiChanged)
         {
-            Dispatcher.BeginInvoke(() => DockToRightEdge(_isExpanded ? _expandedWidth : _settings.CollapsedWidth));
+            Dispatcher.BeginInvoke(() =>
+            {
+                ApplyTheme();
+                DockToRightEdge(_isExpanded ? _expandedWidth : _settings.CollapsedWidth);
+            });
         }
 
         return IntPtr.Zero;
