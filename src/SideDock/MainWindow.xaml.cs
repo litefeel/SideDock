@@ -52,8 +52,8 @@ public partial class MainWindow : Window
     private bool _isExpanded = true;
     private bool _isPinned;
     private bool _isResizing;
-    private double _resizeAnchorRight;
-    private double _resizeContentRight;
+    private double _resizeAnchorEdge;
+    private double _resizeContentFixedEdge;
     private double _pendingResizeWidth;
     private Window? _resizePreviewWindow;
     private Canvas? _resizePreviewCanvas;
@@ -67,8 +67,9 @@ public partial class MainWindow : Window
     public MainWindow()
     {
         InitializeComponent();
-        ApplyTheme();
 
+        ApplyTheme();
+        ApplyDockSideLayout();
         _expandedWidth = ClampExpandedWidth(_settings.DefaultExpandedWidth);
         Width = _expandedWidth;
         MinWidth = _settings.CollapsedWidth;
@@ -88,7 +89,7 @@ public partial class MainWindow : Window
 
     private async void OnLoaded(object sender, RoutedEventArgs e)
     {
-        DockToRightEdge(_expandedWidth);
+        DockToConfiguredEdge(_expandedWidth);
         Collapse();
         _cursorTimer.Start();
         await InitializeWebViewsAsync();
@@ -101,7 +102,7 @@ public partial class MainWindow : Window
         _hwndSource?.AddHook(WndProc);
 
         _appBarManager = new AppBarManager(handle);
-        _appBarManager.Register(GetReservedWidth(Width), Width);
+        _appBarManager.Register(GetReservedWidth(Width), Width, GetDockSide());
     }
 
     private void OnClosing(object? sender, CancelEventArgs e)
@@ -609,7 +610,9 @@ public partial class MainWindow : Window
 
         UpdateSettingsMenuChecks();
         SettingsButton.ContextMenu.PlacementTarget = SettingsButton;
-        SettingsButton.ContextMenu.Placement = System.Windows.Controls.Primitives.PlacementMode.Left;
+        SettingsButton.ContextMenu.Placement = GetDockSide() == AppDockSide.Left
+            ? System.Windows.Controls.Primitives.PlacementMode.Right
+            : System.Windows.Controls.Primitives.PlacementMode.Left;
         SettingsButton.ContextMenu.IsOpen = true;
     }
 
@@ -626,17 +629,66 @@ public partial class MainWindow : Window
         UpdateSettingsMenuChecks();
     }
 
+    private void OnDockSideMenuItemClick(object sender, RoutedEventArgs e)
+    {
+        if (sender is not MenuItem { Tag: string dockSide })
+        {
+            return;
+        }
+
+        _settings.DockSide = AppSettings.NormalizeDockSide(dockSide).ToString();
+        AppSettings.Save(_settings);
+        ApplyDockSideLayout();
+        DockToConfiguredEdge(_isExpanded ? _expandedWidth : _settings.CollapsedWidth);
+        UpdateSettingsMenuChecks();
+    }
+
     private void UpdateSettingsMenuChecks()
     {
         var themeMode = GetThemeMode();
         ThemeDarkMenuItem.IsChecked = themeMode == AppThemeMode.Dark;
         ThemeLightMenuItem.IsChecked = themeMode == AppThemeMode.Light;
         ThemeSystemMenuItem.IsChecked = themeMode == AppThemeMode.System;
+
+        var dockSide = GetDockSide();
+        DockLeftMenuItem.IsChecked = dockSide == AppDockSide.Left;
+        DockRightMenuItem.IsChecked = dockSide == AppDockSide.Right;
     }
 
     private AppThemeMode GetThemeMode()
     {
         return AppSettings.NormalizeThemeMode(_settings.ThemeMode);
+    }
+
+    private AppDockSide GetDockSide()
+    {
+        return AppSettings.NormalizeDockSide(_settings.DockSide);
+    }
+
+    private void ApplyDockSideLayout()
+    {
+        var dockSide = GetDockSide();
+        var railWidth = _settings.CollapsedWidth;
+        var resizeWidth = _isExpanded ? 18 : 0;
+
+        if (dockSide == AppDockSide.Left)
+        {
+            ResizeColumn.Width = new GridLength(railWidth);
+            RailColumn.Width = new GridLength(resizeWidth);
+            Grid.SetColumn(RailBorder, 0);
+            Grid.SetColumn(ContentPanel, 1);
+            Grid.SetColumn(ResizeGrip, 2);
+            RailBorder.BorderThickness = new Thickness(0, 0, 1, 0);
+        }
+        else
+        {
+            ResizeColumn.Width = new GridLength(resizeWidth);
+            RailColumn.Width = new GridLength(railWidth);
+            Grid.SetColumn(ResizeGrip, 0);
+            Grid.SetColumn(ContentPanel, 1);
+            Grid.SetColumn(RailBorder, 2);
+            RailBorder.BorderThickness = new Thickness(1, 0, 0, 0);
+        }
     }
 
     private void ApplyTheme()
@@ -705,6 +757,7 @@ public partial class MainWindow : Window
             return true;
         }
     }
+
     private void SaveExpandedWidth()
     {
         var width = ClampExpandedWidth(_expandedWidth);
@@ -716,6 +769,7 @@ public partial class MainWindow : Window
         _settings.DefaultExpandedWidth = width;
         AppSettings.Save(_settings);
     }
+
     private async void OnAddUrlClick(object sender, RoutedEventArgs e)
     {
         if (!TryPromptForToolDefinition(out var tool))
@@ -836,7 +890,7 @@ public partial class MainWindow : Window
         }
 
         ApplyTopmostState();
-        DockToRightEdge(_isExpanded ? _expandedWidth : _settings.CollapsedWidth);
+        DockToConfiguredEdge(_isExpanded ? _expandedWidth : _settings.CollapsedWidth);
     }
 
     private void OnCursorTimerTick(object? sender, EventArgs e)
@@ -872,11 +926,11 @@ public partial class MainWindow : Window
         _isExpanded = true;
         _cursorLeftAt = null;
         ContentColumn.Width = new GridLength(1, GridUnitType.Star);
-        ResizeColumn.Width = new GridLength(18);
         ContentPanel.Visibility = Visibility.Visible;
         ResizeGrip.Visibility = Visibility.Visible;
+        ApplyDockSideLayout();
         ApplyTopmostState();
-        DockToRightEdge(_expandedWidth);
+        DockToConfiguredEdge(_expandedWidth);
     }
 
     private void Collapse(bool force = false)
@@ -890,9 +944,9 @@ public partial class MainWindow : Window
         ContentPanel.Visibility = Visibility.Collapsed;
         ResizeGrip.Visibility = Visibility.Collapsed;
         ContentColumn.Width = new GridLength(0);
-        ResizeColumn.Width = new GridLength(0);
+        ApplyDockSideLayout();
         ApplyTopmostState();
-        DockToRightEdge(_settings.CollapsedWidth);
+        DockToConfiguredEdge(_settings.CollapsedWidth);
     }
 
     private void OnResizeGripMouseLeftButtonDown(object sender, MouseButtonEventArgs e)
@@ -903,8 +957,17 @@ public partial class MainWindow : Window
         }
 
         _isResizing = true;
-        _resizeContentRight = GetElementRightDips(ContentPanel);
-        _resizeAnchorRight = _resizeContentRight + GetRailWidth();
+        if (GetDockSide() == AppDockSide.Left)
+        {
+            _resizeContentFixedEdge = GetElementLeftDips(ContentPanel);
+            _resizeAnchorEdge = _resizeContentFixedEdge - GetRailWidth();
+        }
+        else
+        {
+            _resizeContentFixedEdge = GetElementRightDips(ContentPanel);
+            _resizeAnchorEdge = _resizeContentFixedEdge + GetRailWidth();
+        }
+
         _pendingResizeWidth = _expandedWidth;
         ShowResizePreview();
         MoveCurrentBrowserToResizePreview();
@@ -933,7 +996,9 @@ public partial class MainWindow : Window
 
     private void UpdatePendingResizeWidth(double screenXDips)
     {
-        var requestedWidth = _resizeAnchorRight - screenXDips;
+        var requestedWidth = GetDockSide() == AppDockSide.Left
+            ? screenXDips - _resizeAnchorEdge
+            : _resizeAnchorEdge - screenXDips;
         _pendingResizeWidth = ClampExpandedWidth(requestedWidth);
         UpdateResizePreview();
     }
@@ -956,7 +1021,7 @@ public partial class MainWindow : Window
             ResizeGrip.ReleaseMouseCapture();
         }
 
-        DockToRightEdge(_expandedWidth);
+        DockToConfiguredEdge(_expandedWidth);
     }
 
     private void ShowResizePreview()
@@ -1027,10 +1092,13 @@ public partial class MainWindow : Window
         }
 
         var screenBounds = GetPrimaryScreenBoundsDips();
-        var gripWidth = ResizeColumn.ActualWidth > 0 ? ResizeColumn.ActualWidth : 18;
-        var contentPreviewLeft = _resizeAnchorRight - _pendingResizeWidth + gripWidth;
-        var previewLeft = Math.Round(contentPreviewLeft - screenBounds.Left);
-        var previewRight = Math.Round(_resizeContentRight - screenBounds.Left);
+        var gripWidth = GetResizeGripWidth();
+        var previewLeft = GetDockSide() == AppDockSide.Left
+            ? Math.Round(_resizeContentFixedEdge - screenBounds.Left)
+            : Math.Round(_resizeAnchorEdge - _pendingResizeWidth + gripWidth - screenBounds.Left);
+        var previewRight = GetDockSide() == AppDockSide.Left
+            ? Math.Round(_resizeAnchorEdge + _pendingResizeWidth - gripWidth - screenBounds.Left)
+            : Math.Round(_resizeContentFixedEdge - screenBounds.Left);
         var contentPreviewWidth = Math.Max(1, previewRight - previewLeft);
 
         Canvas.SetLeft(_resizePreviewPanel, previewLeft);
@@ -1154,11 +1222,31 @@ public partial class MainWindow : Window
         return rightDips.X;
     }
 
+    private double GetElementLeftDips(FrameworkElement element)
+    {
+        var source = PresentationSource.FromVisual(this);
+        if (source?.CompositionTarget is null)
+        {
+            return Left + element.TranslatePoint(new Point(0, 0), this).X;
+        }
+
+        var leftPixels = element.PointToScreen(new Point(0, 0));
+        var leftDips = source.CompositionTarget.TransformFromDevice.Transform(leftPixels);
+        return leftDips.X;
+    }
+
     private double GetRailWidth()
     {
-        return RailColumn.ActualWidth > 0
-            ? RailColumn.ActualWidth
+        return RailBorder.ActualWidth > 0
+            ? RailBorder.ActualWidth
             : _settings.CollapsedWidth;
+    }
+
+    private double GetResizeGripWidth()
+    {
+        return ResizeGrip.ActualWidth > 0
+            ? ResizeGrip.ActualWidth
+            : 18;
     }
 
     private Rect GetPrimaryScreenBoundsDips()
@@ -1176,7 +1264,7 @@ public partial class MainWindow : Window
         return new Rect(topLeft, bottomRight);
     }
 
-    private void DockToRightEdge(double width)
+    private void DockToConfiguredEdge(double width)
     {
         var clampedWidth = _isExpanded
             ? ClampExpandedWidth(width)
@@ -1186,12 +1274,14 @@ public partial class MainWindow : Window
 
         if (_appBarManager is not null)
         {
-            _appBarManager.Apply(GetReservedWidth(clampedWidth), clampedWidth);
+            _appBarManager.Apply(GetReservedWidth(clampedWidth), clampedWidth, GetDockSide());
             return;
         }
 
         var workArea = SystemParameters.WorkArea;
-        Left = workArea.Right - clampedWidth;
+        Left = GetDockSide() == AppDockSide.Left
+            ? workArea.Left
+            : workArea.Right - clampedWidth;
         Top = workArea.Top;
         Height = workArea.Height;
     }
@@ -1543,7 +1633,7 @@ public partial class MainWindow : Window
             Dispatcher.BeginInvoke(() =>
             {
                 ApplyTheme();
-                DockToRightEdge(_isExpanded ? _expandedWidth : _settings.CollapsedWidth);
+                DockToConfiguredEdge(_isExpanded ? _expandedWidth : _settings.CollapsedWidth);
             });
         }
 

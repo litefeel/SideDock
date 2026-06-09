@@ -128,6 +128,10 @@
                                     <MenuItem x:Name="ThemeLightMenuItem" Header="Light" Tag="Light" IsCheckable="True" Click="OnThemeMenuItemClick" />
                                     <MenuItem x:Name="ThemeSystemMenuItem" Header="System" Tag="System" IsCheckable="True" Click="OnThemeMenuItemClick" />
                                 </MenuItem>
+                                <MenuItem Header="Dock side">
+                                    <MenuItem x:Name="DockLeftMenuItem" Header="Left" Tag="Left" IsCheckable="True" Click="OnDockSideMenuItemClick" />
+                                    <MenuItem x:Name="DockRightMenuItem" Header="Right" Tag="Right" IsCheckable="True" Click="OnDockSideMenuItemClick" />
+                                </MenuItem>
                                 <Separator />
                                 <MenuItem Header="Version" Click="OnVersionClick" />
                                 <MenuItem Header="Exit" Click="OnExitClick" />

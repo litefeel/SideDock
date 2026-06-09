@@ -12,6 +12,7 @@ public sealed class AppSettings
     public int AutoHideDelayMilliseconds { get; set; } = 600;
     public bool TopmostByDefault { get; set; } = true;
     public string ThemeMode { get; set; } = nameof(AppThemeMode.System);
+    public string DockSide { get; set; } = nameof(AppDockSide.Right);
     public List<ToolDefinition> Tools { get; set; } = [];
 
     public static string UserSettingsPath => Path.Combine(
@@ -93,6 +94,7 @@ public sealed class AppSettings
     {
         DefaultExpandedWidth = Math.Max(DefaultExpandedWidth, MinExpandedWidth);
         ThemeMode = NormalizeThemeMode(ThemeMode).ToString();
+        DockSide = NormalizeDockSide(DockSide).ToString();
     }
 
     public static AppThemeMode NormalizeThemeMode(string? value)
@@ -104,6 +106,15 @@ public sealed class AppSettings
             _ => AppThemeMode.System
         };
     }
+
+    public static AppDockSide NormalizeDockSide(string? value)
+    {
+        return value?.Trim().ToLowerInvariant() switch
+        {
+            "left" => AppDockSide.Left,
+            _ => AppDockSide.Right
+        };
+    }
 }
 
 public enum AppThemeMode
@@ -111,6 +122,12 @@ public enum AppThemeMode
     Dark,
     Light,
     System
+}
+
+public enum AppDockSide
+{
+    Left,
+    Right
 }
 
 public sealed record ToolDefinition(
