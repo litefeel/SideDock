@@ -4,16 +4,16 @@ setlocal
 set ROOT=%~dp0..
 pushd "%ROOT%"
 
-set VERSION=0.0.2
+set VERSION=0.0.3
 set RUNTIME=win-x64
 
 if not "%~1"=="" set VERSION=%~1
 if /i "%~1"=="win-x64" set RUNTIME=%~1
 if /i "%~1"=="win-x86" set RUNTIME=%~1
 if /i "%~1"=="win-arm64" set RUNTIME=%~1
-if /i "%~1"=="win-x64" set VERSION=0.0.2
-if /i "%~1"=="win-x86" set VERSION=0.0.2
-if /i "%~1"=="win-arm64" set VERSION=0.0.2
+if /i "%~1"=="win-x64" set VERSION=0.0.3
+if /i "%~1"=="win-x86" set VERSION=0.0.3
+if /i "%~1"=="win-arm64" set VERSION=0.0.3
 
 if not defined DOTNET_CLI_HOME set DOTNET_CLI_HOME=%CD%\.dotnet_home
 if not defined NUGET_PACKAGES set NUGET_PACKAGES=%CD%\.nuget\packages

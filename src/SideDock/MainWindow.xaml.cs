@@ -23,6 +23,7 @@ public partial class MainWindow : Window
     private const int WmDpiChanged = 0x02E0;
     private const int AbnPosChanged = 0x00000001;
     private const int DisplayIconSize = 24;
+    private const int PreferredIconFrameSize = 48;
     private const int SystemMetricCxScreen = 0;
     private const int SystemMetricCyScreen = 1;
 
@@ -282,9 +283,33 @@ public partial class MainWindow : Window
         var cachePath = GetIconCachePath(item.Tool);
         Directory.CreateDirectory(Path.GetDirectoryName(cachePath)!);
 
+        await using var memoryStream = new MemoryStream();
+        await iconStream.CopyToAsync(memoryStream);
+        memoryStream.Position = 0;
+
+        if (!TrySelectIconFrame(memoryStream, out var frame))
+        {
+            return false;
+        }
+
+        if (TryGetIconSize(cachePath, out var cachedWidth, out var cachedHeight)
+            && IsPreferredIconSize(cachedWidth, cachedHeight)
+            && !IsPreferredIconSize(frame.PixelWidth, frame.PixelHeight))
+        {
+            if (!TryLoadIcon(cachePath, out var cachedIcon))
+            {
+                return false;
+            }
+
+            item.Icon = cachedIcon;
+            return true;
+        }
+
         await using (var fileStream = File.Create(cachePath))
         {
-            await iconStream.CopyToAsync(fileStream);
+            var encoder = new PngBitmapEncoder();
+            encoder.Frames.Add(BitmapFrame.Create(frame));
+            encoder.Save(fileStream);
         }
 
         if (!TryLoadIcon(cachePath, out var icon))
@@ -294,6 +319,80 @@ public partial class MainWindow : Window
 
         item.Icon = icon;
         return true;
+    }
+
+    private static bool TrySelectIconFrame(Stream iconStream, out BitmapSource frame)
+    {
+        frame = null!;
+
+        try
+        {
+            var decoder = BitmapDecoder.Create(
+                iconStream,
+                BitmapCreateOptions.PreservePixelFormat,
+                BitmapCacheOption.OnLoad);
+
+            var selectedFrame = decoder.Frames
+                .Where(candidate => IsPreferredIconSize(candidate.PixelWidth, candidate.PixelHeight))
+                .OrderBy(candidate => Math.Max(candidate.PixelWidth, candidate.PixelHeight))
+                .ThenBy(candidate => Math.Min(candidate.PixelWidth, candidate.PixelHeight))
+                .FirstOrDefault()
+                ?? decoder.Frames
+                    .OrderByDescending(candidate => Math.Max(candidate.PixelWidth, candidate.PixelHeight))
+                    .ThenByDescending(candidate => Math.Min(candidate.PixelWidth, candidate.PixelHeight))
+                    .FirstOrDefault();
+
+            if (selectedFrame is null)
+            {
+                return false;
+            }
+
+            frame = selectedFrame;
+            return true;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private static bool TryGetIconSize(string path, out int width, out int height)
+    {
+        width = 0;
+        height = 0;
+
+        if (!File.Exists(path))
+        {
+            return false;
+        }
+
+        try
+        {
+            using var stream = File.OpenRead(path);
+            var decoder = BitmapDecoder.Create(
+                stream,
+                BitmapCreateOptions.PreservePixelFormat,
+                BitmapCacheOption.OnLoad);
+            var frame = decoder.Frames.FirstOrDefault();
+
+            if (frame is null)
+            {
+                return false;
+            }
+
+            width = frame.PixelWidth;
+            height = frame.PixelHeight;
+            return true;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private static bool IsPreferredIconSize(int width, int height)
+    {
+        return width >= PreferredIconFrameSize && height >= PreferredIconFrameSize;
     }
 
     private static bool TryLoadIcon(string path, out BitmapImage? icon)

@@ -33,7 +33,7 @@ scripts\Build-Installer.cmd 0.0.3 win-x64
 This publishes a self-contained `win-x64` release with `PublishReadyToRun=true`, then builds:
 
 ```text
-artifacts\installer\SideDock-0.0.2-win-x64.msi
+artifacts\installer\SideDock-0.0.3-win-x64.msi
 ```
 
 WPF does not support .NET NativeAOT, so this project uses ReadyToRun AOT publishing instead of NativeAOT.
@@ -41,7 +41,7 @@ WPF does not support .NET NativeAOT, so this project uses ReadyToRun AOT publish
 Install:
 
 ```cmd
-msiexec /i artifacts\installer\SideDock-0.0.2-win-x64.msi
+msiexec /i artifacts\installer\SideDock-0.0.3-win-x64.msi
 ```
 
 The MSI installs SideDock for the current user under `%LOCALAPPDATA%\Programs\SideDock`, creates a Start Menu shortcut, and enables startup by writing the current user's `Run` registry key.
