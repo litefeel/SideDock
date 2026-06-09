@@ -505,10 +505,27 @@ public partial class MainWindow : Window
         await ShowSelectedToolAsync();
     }
 
+    private void OnToolListMouseLeftButtonDown(object sender, MouseButtonEventArgs e)
+    {
+        if (FindAncestor<ListBoxItem>(e.OriginalSource as DependencyObject) is not null
+            && !TryGetToolIconHit(e, out _))
+        {
+            e.Handled = true;
+        }
+    }
+
     private async void OnToolListMouseLeftButtonUp(object sender, MouseButtonEventArgs e)
     {
+        if (!TryGetToolIconHit(e, out var item))
+        {
+            e.Handled = true;
+            return;
+        }
+
+        ToolList.SelectedItem = item;
         await ShowSelectedToolAsync();
         Expand();
+        e.Handled = true;
     }
 
     private async Task ShowSelectedToolAsync()
@@ -1015,6 +1032,48 @@ public partial class MainWindow : Window
     private bool IsCurrentTool(ToolDefinition tool)
     {
         return _currentItem?.Tool.Id.Equals(tool.Id, StringComparison.OrdinalIgnoreCase) == true;
+    }
+
+    private static T? FindAncestor<T>(DependencyObject? current)
+        where T : DependencyObject
+    {
+        while (current is not null)
+        {
+            if (current is T match)
+            {
+                return match;
+            }
+
+            current = VisualTreeHelper.GetParent(current);
+        }
+
+        return null;
+    }
+
+    private static bool TryGetToolIconHit(MouseButtonEventArgs e, out ToolItem? item)
+    {
+        item = null;
+
+        var container = FindAncestor<ListBoxItem>(e.OriginalSource as DependencyObject);
+        if (container?.DataContext is not ToolItem toolItem)
+        {
+            return false;
+        }
+
+        var pointer = e.GetPosition(container);
+        var iconBounds = new Rect(
+            (container.ActualWidth - DisplayIconSize) / 2,
+            (container.ActualHeight - DisplayIconSize) / 2,
+            DisplayIconSize,
+            DisplayIconSize);
+
+        if (!iconBounds.Contains(pointer))
+        {
+            return false;
+        }
+
+        item = toolItem;
+        return true;
     }
 
     private double GetReservedWidth(double windowWidth)

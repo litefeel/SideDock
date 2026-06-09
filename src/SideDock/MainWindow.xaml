@@ -108,6 +108,7 @@
                              Background="Transparent"
                              Foreground="#E8EDF5"
                              SelectionChanged="OnToolSelectionChanged"
+                             PreviewMouseLeftButtonDown="OnToolListMouseLeftButtonDown"
                              PreviewMouseLeftButtonUp="OnToolListMouseLeftButtonUp"
                              ScrollViewer.HorizontalScrollBarVisibility="Disabled"
                              ScrollViewer.VerticalScrollBarVisibility="Disabled"
