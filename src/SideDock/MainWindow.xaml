@@ -121,6 +121,8 @@
                             <ContextMenu>
                                 <MenuItem Header="Add URL" Click="OnAddUrlClick" />
                                 <MenuItem Header="Remove current URL" Click="OnRemoveUrlClick" />
+                                <Separator />
+                                <MenuItem Header="Version" Click="OnVersionClick" />
                             </ContextMenu>
                         </Button.ContextMenu>
                     </Button>

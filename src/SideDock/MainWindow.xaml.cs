@@ -5,6 +5,7 @@ using System.ComponentModel;
 using System.Diagnostics;
 using System.IO;
 using System.Net.Http;
+using System.Reflection;
 using System.Runtime.InteropServices;
 using System.Text.Json;
 using System.Windows;
@@ -668,6 +669,21 @@ public partial class MainWindow : Window
 
         ToolList.SelectedIndex = Math.Min(removedIndex, _toolItems.Count - 1);
         ShowSelectedTool();
+    }
+
+    private void OnVersionClick(object sender, RoutedEventArgs e)
+    {
+        var version = Assembly.GetExecutingAssembly()
+            .GetCustomAttribute<AssemblyInformationalVersionAttribute>()
+            ?.InformationalVersion
+            ?? Assembly.GetExecutingAssembly().GetName().Version?.ToString()
+            ?? "unknown";
+
+        MessageBox.Show(
+            $"SideDock {version}",
+            "SideDock",
+            MessageBoxButton.OK,
+            MessageBoxImage.Information);
     }
 
     private void OnOpenExternalClick(object sender, RoutedEventArgs e)
