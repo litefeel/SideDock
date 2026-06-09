@@ -40,6 +40,36 @@ public partial class MainWindow : Window
         PropertyNameCaseInsensitive = true
     };
 
+    private const string ExternalBlankLinkMessageType = "sideDock.openExternalBlankLink";
+    private const string ExternalBlankLinkScript = """
+        (() => {
+            if (window.__sideDockExternalBlankLinkHandlerInstalled) {
+                return;
+            }
+
+            window.__sideDockExternalBlankLinkHandlerInstalled = true;
+
+            document.addEventListener('click', event => {
+                if (event.defaultPrevented || event.button !== 0) {
+                    return;
+                }
+
+                const element = event.target instanceof Element ? event.target : event.target?.parentElement;
+                const anchor = element?.closest?.('a[target]');
+                const target = anchor?.getAttribute('target')?.trim().toLowerCase();
+                if (!anchor || target !== '_blank' || !anchor.href) {
+                    return;
+                }
+
+                window.chrome?.webview?.postMessage({
+                    type: 'sideDock.openExternalBlankLink',
+                    href: anchor.href
+                });
+                event.preventDefault();
+            });
+        })();
+        """;
+
     private readonly AppSettings _settings = AppSettings.Load();
     private readonly DispatcherTimer _cursorTimer;
     private readonly ObservableCollection<ToolItem> _toolItems;
@@ -175,6 +205,8 @@ public partial class MainWindow : Window
         await browser.EnsureCoreWebView2Async(_webViewEnvironment);
         browser.CoreWebView2.Settings.AreDefaultContextMenusEnabled = true;
         browser.CoreWebView2.Settings.AreDevToolsEnabled = true;
+        await browser.CoreWebView2.AddScriptToExecuteOnDocumentCreatedAsync(ExternalBlankLinkScript);
+        browser.CoreWebView2.WebMessageReceived += (_, args) => OnBrowserWebMessageReceived(args);
         browser.CoreWebView2.NavigationStarting += (_, _) => OnBrowserNavigationStarting(item.Tool);
         browser.CoreWebView2.NavigationCompleted += async (_, args) => await OnBrowserNavigationCompletedAsync(item, browser, args);
         browser.CoreWebView2.NewWindowRequested += (_, args) => OnNewWindowRequested(browser, args);
@@ -598,6 +630,49 @@ public partial class MainWindow : Window
         if (!string.IsNullOrWhiteSpace(e.Uri))
         {
             browser.CoreWebView2.Navigate(e.Uri);
+        }
+    }
+
+    private void OnBrowserWebMessageReceived(CoreWebView2WebMessageReceivedEventArgs e)
+    {
+        if (TryGetExternalBlankLinkUrl(e.WebMessageAsJson, out var url))
+        {
+            OpenExternal(url);
+        }
+    }
+
+    private static bool TryGetExternalBlankLinkUrl(string json, out string url)
+    {
+        url = string.Empty;
+
+        try
+        {
+            using var document = JsonDocument.Parse(json);
+            var root = document.RootElement;
+
+            if (root.ValueKind != JsonValueKind.Object
+                || !root.TryGetProperty("type", out var typeElement)
+                || typeElement.ValueKind != JsonValueKind.String
+                || !string.Equals(typeElement.GetString(), ExternalBlankLinkMessageType, StringComparison.Ordinal)
+                || !root.TryGetProperty("href", out var hrefElement)
+                || hrefElement.ValueKind != JsonValueKind.String)
+            {
+                return false;
+            }
+
+            var href = hrefElement.GetString();
+            if (!Uri.TryCreate(href, UriKind.Absolute, out var uri)
+                || (uri.Scheme != Uri.UriSchemeHttp && uri.Scheme != Uri.UriSchemeHttps))
+            {
+                return false;
+            }
+
+            url = uri.AbsoluteUri;
+            return true;
+        }
+        catch (JsonException)
+        {
+            return false;
         }
     }
 
