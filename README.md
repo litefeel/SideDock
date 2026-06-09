@@ -30,10 +30,22 @@ Build a specific installer version:
 scripts\Build-Installer.cmd 0.0.3 win-x64
 ```
 
+Build the smaller framework-dependent installer without the .NET runtime:
+
+```cmd
+scripts\Build-Installer.cmd 0.0.3 win-x64 no-runtime
+```
+
 This publishes a self-contained `win-x64` release with `PublishReadyToRun=true`, then builds:
 
 ```text
 artifacts\installer\SideDock-0.0.3-win-x64.msi
+```
+
+The no-runtime variant builds:
+
+```text
+artifacts\installer\SideDock-0.0.3-win-x64-no-runtime.msi
 ```
 
 WPF does not support .NET NativeAOT, so this project uses ReadyToRun AOT publishing instead of NativeAOT.
@@ -50,7 +62,12 @@ Uninstall from Windows Settings under installed apps, or use Programs and Featur
 
 ## Release
 
-Create and publish a GitHub Release with a tag like `v0.0.3`. The `Release MSI` workflow will build `SideDock-0.0.3-win-x64.msi` from that tag and attach it to the release assets.
+Create and publish a GitHub Release with a tag like `v0.0.3`. The `Release MSI` workflow will build and attach both MSI release assets from that tag:
+
+```text
+SideDock-0.0.3-win-x64.msi
+SideDock-0.0.3-win-x64-no-runtime.msi
+```
 
 Release tags must use three numeric version parts, optionally prefixed with `v`, because Windows Installer product versions do not support prerelease labels.
 

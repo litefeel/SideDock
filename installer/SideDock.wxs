@@ -49,6 +49,11 @@
         <File Id="AppSettingsJson" Source="$(var.PublishDir)\appsettings.json" KeyPath="yes" />
       </Component>
 
+      <Files Include="$(var.PublishDir)\**">
+        <Exclude Files="$(var.PublishDir)\SideDock.exe" />
+        <Exclude Files="$(var.PublishDir)\appsettings.json" />
+      </Files>
+
       <Component Id="ProgramMenuCleanupComponent" Directory="ProgramMenuSideDockFolder" Guid="{CF7605B6-7DF7-46EE-AC06-B933550648C6}">
         <RemoveFolder Id="RemoveProgramMenuSideDockFolder" On="uninstall" />
         <RegistryValue Root="HKCU" Key="Software\SideDock" Name="Installed" Type="integer" Value="1" KeyPath="yes" />

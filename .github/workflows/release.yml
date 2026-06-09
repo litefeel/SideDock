@@ -54,21 +54,30 @@ jobs:
         with:
           dotnet-version: 10.0.x
 
-      - name: Build MSI
+      - name: Build MSI with runtime
         shell: cmd
-        run: scripts\Build-Installer.cmd ${{ steps.release.outputs.version }} %RUNTIME%
+        run: scripts\Build-Installer.cmd ${{ steps.release.outputs.version }} %RUNTIME% with-runtime
 
-      - name: Upload workflow artifact
+      - name: Build MSI without runtime
+        shell: cmd
+        run: scripts\Build-Installer.cmd ${{ steps.release.outputs.version }} %RUNTIME% no-runtime
+
+      - name: Upload workflow artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: SideDock-${{ steps.release.outputs.version }}-${{ env.RUNTIME }}.msi
-          path: artifacts\installer\SideDock-${{ steps.release.outputs.version }}-${{ env.RUNTIME }}.msi
+          name: SideDock-${{ steps.release.outputs.version }}-${{ env.RUNTIME }}-msi
+          path: |
+            artifacts\installer\SideDock-${{ steps.release.outputs.version }}-${{ env.RUNTIME }}.msi
+            artifacts\installer\SideDock-${{ steps.release.outputs.version }}-${{ env.RUNTIME }}-no-runtime.msi
           if-no-files-found: error
 
-      - name: Attach MSI to GitHub release
+      - name: Attach MSIs to GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
         shell: pwsh
         run: |
-          $asset = "artifacts\installer\SideDock-${{ steps.release.outputs.version }}-${{ env.RUNTIME }}.msi"
-          gh release upload '${{ steps.release.outputs.tag }}' $asset --clobber
+          $assets = @(
+            "artifacts\installer\SideDock-${{ steps.release.outputs.version }}-${{ env.RUNTIME }}.msi",
+            "artifacts\installer\SideDock-${{ steps.release.outputs.version }}-${{ env.RUNTIME }}-no-runtime.msi"
+          )
+          gh release upload '${{ steps.release.outputs.tag }}' $assets --clobber
