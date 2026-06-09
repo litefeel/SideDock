@@ -123,6 +123,7 @@
                                 <MenuItem Header="Remove current URL" Click="OnRemoveUrlClick" />
                                 <Separator />
                                 <MenuItem Header="Version" Click="OnVersionClick" />
+                                <MenuItem Header="Exit" Click="OnExitClick" />
                             </ContextMenu>
                         </Button.ContextMenu>
                     </Button>

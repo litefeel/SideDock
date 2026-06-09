@@ -686,6 +686,11 @@ public partial class MainWindow : Window
             MessageBoxImage.Information);
     }
 
+    private void OnExitClick(object sender, RoutedEventArgs e)
+    {
+        Application.Current.Shutdown();
+    }
+
     private void OnOpenExternalClick(object sender, RoutedEventArgs e)
     {
         OpenExternal(GetCurrentUrl());
