@@ -103,6 +103,28 @@
                     BorderBrush="#55FFFFFF"
                     BorderThickness="1,0,0,0">
                 <DockPanel LastChildFill="True">
+                    <Button x:Name="SettingsButton"
+                            DockPanel.Dock="Bottom"
+                            Width="40"
+                            Height="40"
+                            Margin="4,0,4,10"
+                            Background="Transparent"
+                            BorderBrush="Transparent"
+                            Foreground="#D8DEE9"
+                            FontFamily="Segoe MDL2 Assets"
+                            FontSize="18"
+                            Cursor="Hand"
+                            Content="&#xE712;"
+                            ToolTip="Settings"
+                            Click="OnSettingsClick">
+                        <Button.ContextMenu>
+                            <ContextMenu>
+                                <MenuItem Header="Add URL" Click="OnAddUrlClick" />
+                                <MenuItem Header="Remove current URL" Click="OnRemoveUrlClick" />
+                            </ContextMenu>
+                        </Button.ContextMenu>
+                    </Button>
+
                     <ListBox x:Name="ToolList"
                              BorderThickness="0"
                              Background="Transparent"
@@ -112,7 +134,7 @@
                              PreviewMouseLeftButtonUp="OnToolListMouseLeftButtonUp"
                              ScrollViewer.HorizontalScrollBarVisibility="Disabled"
                              ScrollViewer.VerticalScrollBarVisibility="Disabled"
-                             Margin="4,10,4,10">
+                             Margin="4,10,4,4">
                         <ListBox.ItemContainerStyle>
                             <Style TargetType="ListBoxItem">
                                 <Setter Property="HorizontalContentAlignment" Value="Stretch" />

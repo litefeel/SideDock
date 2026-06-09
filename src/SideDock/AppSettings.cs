@@ -13,33 +13,64 @@ public sealed class AppSettings
     public bool TopmostByDefault { get; set; } = true;
     public List<ToolDefinition> Tools { get; set; } = [];
 
+    public static string UserSettingsPath => Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+        "SideDock",
+        "appsettings.json");
+
     public static AppSettings Load()
     {
+        if (TryLoadFromPath(UserSettingsPath, out var userSettings))
+        {
+            return userSettings;
+        }
+
         var path = Path.Combine(AppContext.BaseDirectory, "appsettings.json");
+        if (TryLoadFromPath(path, out var appSettings))
+        {
+            return appSettings;
+        }
+
+        return CreateDefault();
+    }
+
+    public static void Save(AppSettings settings)
+    {
+        Directory.CreateDirectory(Path.GetDirectoryName(UserSettingsPath)!);
+        var json = JsonSerializer.Serialize(
+            settings,
+            new JsonSerializerOptions { WriteIndented = true });
+        File.WriteAllText(UserSettingsPath, json);
+    }
+
+    private static bool TryLoadFromPath(string path, out AppSettings settings)
+    {
+        settings = null!;
         if (!File.Exists(path))
         {
-            return CreateDefault();
+            return false;
         }
 
         try
         {
             var json = File.ReadAllText(path);
-            var settings = JsonSerializer.Deserialize<AppSettings>(
+            var loadedSettings = JsonSerializer.Deserialize<AppSettings>(
                 json,
                 new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
 
-            if (settings is null || settings.Tools.Count == 0)
+            if (loadedSettings is null || loadedSettings.Tools.Count == 0)
             {
-                return CreateDefault();
+                return false;
             }
 
-            settings.DefaultExpandedWidth = Math.Max(settings.DefaultExpandedWidth, settings.MinExpandedWidth);
+            loadedSettings.DefaultExpandedWidth = Math.Max(loadedSettings.DefaultExpandedWidth, loadedSettings.MinExpandedWidth);
+            settings = loadedSettings;
 
-            return settings;
+            return true;
         }
         catch
         {
-            return CreateDefault();
+            return false;
         }
     }
 

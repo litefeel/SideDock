@@ -1,5 +1,6 @@
 using Microsoft.Web.WebView2.Core;
 using Microsoft.Web.WebView2.Wpf;
+using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.Diagnostics;
 using System.IO;
@@ -39,7 +40,7 @@ public partial class MainWindow : Window
 
     private readonly AppSettings _settings = AppSettings.Load();
     private readonly DispatcherTimer _cursorTimer;
-    private readonly List<ToolItem> _toolItems;
+    private readonly ObservableCollection<ToolItem> _toolItems;
     private readonly Dictionary<string, WebView2> _browsers = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, string> _toolStatuses = new(StringComparer.OrdinalIgnoreCase);
     private DateTime? _cursorLeftAt;
@@ -70,7 +71,7 @@ public partial class MainWindow : Window
         MinWidth = _settings.CollapsedWidth;
         Topmost = true;
 
-        _toolItems = _settings.Tools.Select(tool => new ToolItem(tool)).ToList();
+        _toolItems = new ObservableCollection<ToolItem>(_settings.Tools.Select(tool => new ToolItem(tool)));
         LoadCachedIcons();
         ToolList.ItemsSource = _toolItems;
         ToolList.SelectedIndex = 0;
@@ -596,6 +597,79 @@ public partial class MainWindow : Window
         }
     }
 
+    private void OnSettingsClick(object sender, RoutedEventArgs e)
+    {
+        if (SettingsButton.ContextMenu is null)
+        {
+            return;
+        }
+
+        SettingsButton.ContextMenu.PlacementTarget = SettingsButton;
+        SettingsButton.ContextMenu.Placement = System.Windows.Controls.Primitives.PlacementMode.Left;
+        SettingsButton.ContextMenu.IsOpen = true;
+    }
+
+    private async void OnAddUrlClick(object sender, RoutedEventArgs e)
+    {
+        if (!TryPromptForToolDefinition(out var tool))
+        {
+            return;
+        }
+
+        _settings.Tools.Add(tool);
+        AppSettings.Save(_settings);
+
+        var item = new ToolItem(tool);
+        _toolItems.Add(item);
+        await CreateBrowserAsync(item);
+        ToolList.SelectedItem = item;
+        ShowSelectedTool();
+        Expand();
+    }
+
+    private void OnRemoveUrlClick(object sender, RoutedEventArgs e)
+    {
+        if (ToolList.SelectedItem is not ToolItem item)
+        {
+            return;
+        }
+
+        if (_toolItems.Count <= 1)
+        {
+            MessageBox.Show(
+                "At least one URL is required.",
+                "SideDock",
+                MessageBoxButton.OK,
+                MessageBoxImage.Information);
+            return;
+        }
+
+        var result = MessageBox.Show(
+            $"Remove {item.Tool.Title}?",
+            "SideDock",
+            MessageBoxButton.YesNo,
+            MessageBoxImage.Question);
+        if (result != MessageBoxResult.Yes)
+        {
+            return;
+        }
+
+        var removedIndex = ToolList.SelectedIndex;
+        if (_browsers.Remove(item.Tool.Id, out var browser))
+        {
+            BrowserHost.Children.Remove(browser);
+            browser.Dispose();
+        }
+
+        _toolStatuses.Remove(item.Tool.Id);
+        _settings.Tools.RemoveAll(tool => tool.Id.Equals(item.Tool.Id, StringComparison.OrdinalIgnoreCase));
+        AppSettings.Save(_settings);
+        _toolItems.Remove(item);
+
+        ToolList.SelectedIndex = Math.Min(removedIndex, _toolItems.Count - 1);
+        ShowSelectedTool();
+    }
+
     private void OnOpenExternalClick(object sender, RoutedEventArgs e)
     {
         OpenExternal(GetCurrentUrl());
@@ -1032,6 +1106,202 @@ public partial class MainWindow : Window
     private bool IsCurrentTool(ToolDefinition tool)
     {
         return _currentItem?.Tool.Id.Equals(tool.Id, StringComparison.OrdinalIgnoreCase) == true;
+    }
+
+    private bool TryPromptForToolDefinition(out ToolDefinition tool)
+    {
+        tool = null!;
+        ToolDefinition? createdTool = null;
+
+        var titleBox = new TextBox
+        {
+            MinWidth = 280,
+            Margin = new Thickness(0, 4, 0, 12)
+        };
+        var urlBox = new TextBox
+        {
+            MinWidth = 280,
+            Margin = new Thickness(0, 4, 0, 8)
+        };
+        var errorText = new TextBlock
+        {
+            Foreground = Brushes.Firebrick,
+            TextWrapping = TextWrapping.Wrap,
+            Margin = new Thickness(0, 0, 0, 12)
+        };
+
+        var addButton = new Button
+        {
+            Content = "Add",
+            IsDefault = true,
+            MinWidth = 78,
+            Margin = new Thickness(0, 0, 8, 0)
+        };
+        var cancelButton = new Button
+        {
+            Content = "Cancel",
+            IsCancel = true,
+            MinWidth = 78
+        };
+        var buttons = new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            HorizontalAlignment = HorizontalAlignment.Right
+        };
+        buttons.Children.Add(addButton);
+        buttons.Children.Add(cancelButton);
+
+        var content = new StackPanel
+        {
+            Margin = new Thickness(18)
+        };
+        content.Children.Add(new TextBlock { Text = "Title" });
+        content.Children.Add(titleBox);
+        content.Children.Add(new TextBlock { Text = "URL" });
+        content.Children.Add(urlBox);
+        content.Children.Add(errorText);
+        content.Children.Add(buttons);
+
+        var dialog = new Window
+        {
+            Title = "Add URL",
+            Owner = this,
+            WindowStartupLocation = WindowStartupLocation.CenterOwner,
+            ResizeMode = ResizeMode.NoResize,
+            SizeToContent = SizeToContent.WidthAndHeight,
+            Content = content
+        };
+
+        addButton.Click += (_, _) =>
+        {
+            if (!TryCreateToolDefinition(titleBox.Text, urlBox.Text, out var candidate, out var error))
+            {
+                errorText.Text = error;
+                return;
+            }
+
+            createdTool = candidate;
+            dialog.DialogResult = true;
+        };
+
+        if (dialog.ShowDialog() == true && createdTool is not null)
+        {
+            tool = createdTool;
+            return true;
+        }
+
+        return false;
+    }
+
+    private bool TryCreateToolDefinition(string title, string url, out ToolDefinition tool, out string error)
+    {
+        tool = null!;
+        error = string.Empty;
+
+        if (!TryNormalizeUrl(url, out var uri, out error))
+        {
+            return false;
+        }
+
+        var displayTitle = string.IsNullOrWhiteSpace(title)
+            ? uri.Host
+            : title.Trim();
+        tool = new ToolDefinition(
+            CreateUniqueToolId(displayTitle, uri),
+            displayTitle,
+            uri.AbsoluteUri,
+            CreateIconKey(displayTitle),
+            true);
+        return true;
+    }
+
+    private static bool TryNormalizeUrl(string input, out Uri uri, out string error)
+    {
+        uri = null!;
+        error = string.Empty;
+
+        var candidate = input.Trim();
+        if (string.IsNullOrWhiteSpace(candidate))
+        {
+            error = "URL is required.";
+            return false;
+        }
+
+        if (!candidate.Contains("://", StringComparison.Ordinal))
+        {
+            candidate = $"https://{candidate}";
+        }
+
+        if (!Uri.TryCreate(candidate, UriKind.Absolute, out var parsedUri)
+            || (parsedUri.Scheme != Uri.UriSchemeHttp && parsedUri.Scheme != Uri.UriSchemeHttps))
+        {
+            error = "Enter a valid http or https URL.";
+            return false;
+        }
+
+        uri = parsedUri;
+        return true;
+    }
+
+    private string CreateUniqueToolId(string title, Uri uri)
+    {
+        var baseId = ToSafeId(title);
+        if (string.IsNullOrWhiteSpace(baseId))
+        {
+            baseId = ToSafeId(uri.Host);
+        }
+
+        if (string.IsNullOrWhiteSpace(baseId))
+        {
+            baseId = "tool";
+        }
+
+        var existingIds = _settings.Tools
+            .Select(tool => tool.Id)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var id = baseId;
+        var suffix = 2;
+        while (existingIds.Contains(id))
+        {
+            id = $"{baseId}-{suffix}";
+            suffix++;
+        }
+
+        return id;
+    }
+
+    private static string ToSafeId(string value)
+    {
+        var chars = new List<char>();
+        var previousSeparator = false;
+        foreach (var ch in value.Trim().ToLowerInvariant())
+        {
+            if (char.IsLetterOrDigit(ch))
+            {
+                chars.Add(ch);
+                previousSeparator = false;
+                continue;
+            }
+
+            if (!previousSeparator)
+            {
+                chars.Add('-');
+                previousSeparator = true;
+            }
+        }
+
+        return new string(chars.ToArray()).Trim('-');
+    }
+
+    private static string CreateIconKey(string title)
+    {
+        var key = new string(title
+            .Where(char.IsLetterOrDigit)
+            .Take(2)
+            .Select(char.ToUpperInvariant)
+            .ToArray());
+
+        return string.IsNullOrWhiteSpace(key) ? "UR" : key;
     }
 
     private static T? FindAncestor<T>(DependencyObject? current)
