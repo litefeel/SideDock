@@ -54,6 +54,40 @@
             </Setter>
         </Style>
 
+        <Style x:Key="RailIconButtonStyle" TargetType="{x:Type Button}">
+            <Setter Property="Width" Value="40" />
+            <Setter Property="Height" Value="40" />
+            <Setter Property="Margin" Value="4,0,4,10" />
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="BorderBrush" Value="Transparent" />
+            <Setter Property="Foreground" Value="{DynamicResource HeaderButtonForeground}" />
+            <Setter Property="FontFamily" Value="Segoe MDL2 Assets" />
+            <Setter Property="FontSize" Value="18" />
+            <Setter Property="Cursor" Value="Hand" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="{x:Type Button}">
+                        <Border x:Name="ButtonChrome"
+                                Background="{TemplateBinding Background}"
+                                BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="0"
+                                CornerRadius="6">
+                            <ContentPresenter HorizontalAlignment="Center"
+                                              VerticalAlignment="Center" />
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="ButtonChrome" Property="Background" Value="{DynamicResource ToolItemHoverBackground}" />
+                            </Trigger>
+                            <Trigger Property="IsPressed" Value="True">
+                                <Setter TargetName="ButtonChrome" Property="Background" Value="{DynamicResource ToolItemHoverBackground}" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
         <Style x:Key="HeaderToggleButtonStyle" TargetType="{x:Type ToggleButton}">
             <Setter Property="Width" Value="34" />
             <Setter Property="Height" Value="34" />
@@ -106,15 +140,7 @@
                 <DockPanel LastChildFill="True">
                     <Button x:Name="SettingsButton"
                             DockPanel.Dock="Bottom"
-                            Width="40"
-                            Height="40"
-                            Margin="4,0,4,10"
-                            Background="Transparent"
-                            BorderBrush="Transparent"
-                            Foreground="{DynamicResource HeaderButtonForeground}"
-                            FontFamily="Segoe MDL2 Assets"
-                            FontSize="18"
-                            Cursor="Hand"
+                            Style="{StaticResource RailIconButtonStyle}"
                             Content="&#xE712;"
                             ToolTip="Settings"
                             Click="OnSettingsClick">
