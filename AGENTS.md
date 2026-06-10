@@ -92,6 +92,7 @@ Use the actual project version when validating a release candidate.
 ## Commit Policy
 
 - 每个功能一个 commit。
+- 更新版本号要单独一个 commit。
 - Do not combine unrelated features, fixes, installer changes, or documentation updates into a single commit.
 - If a request contains multiple independent features, split the implementation into separate commits.
 - Keep commit messages specific to the feature or fix being committed.
@@ -104,9 +105,9 @@ The GitHub Release page must clearly describe:
 
 - What changed in the release.
 - Which bugs were fixed, if any.
-- Which installer assets are attached.
 - That `SideDock-<version>-<runtime>.msi` includes the .NET runtime.
 - That `SideDock-<version>-<runtime>-no-runtime.msi` is smaller but requires .NET 10 to already be installed.
+- Do not include routine version bump entries like `Bump app and installer version to <version>` in `Changes`; version bumps are expected for every release.
 
 Use this release note structure unless the user asks for another format:
 
@@ -114,11 +115,6 @@ Use this release note structure unless the user asks for another format:
 ## Changes
 
 - ...
-
-## Installer Assets
-
-- `SideDock-<version>-win-x64.msi`: includes the .NET runtime.
-- `SideDock-<version>-win-x64-no-runtime.msi`: requires .NET 10 installed on the target machine.
 
 ## Requirements
 
