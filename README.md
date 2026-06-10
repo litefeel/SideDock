@@ -27,25 +27,25 @@ scripts\Build-Installer.cmd
 Build a specific installer version:
 
 ```cmd
-scripts\Build-Installer.cmd 0.0.9 win-x64
+scripts\Build-Installer.cmd 0.0.10 win-x64
 ```
 
 Build the smaller framework-dependent installer without the .NET runtime:
 
 ```cmd
-scripts\Build-Installer.cmd 0.0.9 win-x64 no-runtime
+scripts\Build-Installer.cmd 0.0.10 win-x64 no-runtime
 ```
 
 This publishes a self-contained `win-x64` release with `PublishReadyToRun=true`, then builds:
 
 ```text
-artifacts\installer\SideDock-0.0.9-win-x64.msi
+artifacts\installer\SideDock-0.0.10-win-x64.msi
 ```
 
 The no-runtime variant builds:
 
 ```text
-artifacts\installer\SideDock-0.0.9-win-x64-no-runtime.msi
+artifacts\installer\SideDock-0.0.10-win-x64-no-runtime.msi
 ```
 
 WPF does not support .NET NativeAOT, so this project uses ReadyToRun AOT publishing instead of NativeAOT.
@@ -53,20 +53,20 @@ WPF does not support .NET NativeAOT, so this project uses ReadyToRun AOT publish
 Install:
 
 ```cmd
-msiexec /i artifacts\installer\SideDock-0.0.9-win-x64.msi
+msiexec /i artifacts\installer\SideDock-0.0.10-win-x64.msi
 ```
 
-The MSI installs SideDock for the current user under `%LOCALAPPDATA%\Programs\SideDock`, creates a Start Menu shortcut, and enables startup by writing the current user's `Run` registry key.
+The MSI installs SideDock for the current user under `%LOCALAPPDATA%\Programs\SideDock` and creates a Start Menu shortcut. Startup can be enabled or disabled from the app settings menu.
 
-Uninstall from Windows Settings under installed apps, or use Programs and Features. Windows Installer removes the files, shortcut, and startup registry value.
+Uninstall from Windows Settings under installed apps, or use Programs and Features. Windows Installer removes the files and shortcut.
 
 ## Release
 
-Create and publish a GitHub Release with a tag like `v0.0.9`. The `Release MSI` workflow will build and attach both MSI release assets from that tag:
+Create and publish a GitHub Release with a tag like `v0.0.10`. The `Release MSI` workflow will build and attach both MSI release assets from that tag:
 
 ```text
-SideDock-0.0.9-win-x64.msi
-SideDock-0.0.9-win-x64-no-runtime.msi
+SideDock-0.0.10-win-x64.msi
+SideDock-0.0.10-win-x64-no-runtime.msi
 ```
 
 Release tags must use three numeric version parts, optionally prefixed with `v`, because Windows Installer product versions do not support prerelease labels.
@@ -85,7 +85,7 @@ When pin is enabled, the expanded web panel is also registered as appbar space, 
 
 The expanded width is capped dynamically at the current screen width minus the persistent icon rail width. Dragging the resize grip saves the expanded width to `%LOCALAPPDATA%\SideDock\appsettings.json`, and the next app launch uses that saved width.
 
-The settings menu supports `Dark`, `Light`, and `System` theme modes. `System` follows the Windows app theme preference.
+The settings menu supports `Dark`, `Light`, and `System` theme modes. `Dark` and `Light` also set the embedded pages' preferred color scheme; `System` follows the Windows app theme preference.
 
 Each configured site gets its own WebView2 instance, so switching icons restores that site's existing page immediately. The hide button collapses the panel while keeping page instances alive. The close button disposes the current page and collapses the panel; selecting that site again creates a fresh WebView2 instance.
 
@@ -100,3 +100,4 @@ Edit `src\SideDock\appsettings.json` to change the fixed web tools. The supporte
 - `OpenExternalFallbackEnabled`
 - `ThemeMode`: `Dark`, `Light`, or `System`
 - `DockSide`: `Left` or `Right`
+- `StartWithWindows`: `true` or `false`
