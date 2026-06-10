@@ -8,6 +8,7 @@ using System.IO;
 using System.Net.Http;
 using System.Reflection;
 using System.Runtime.InteropServices;
+using System.Text;
 using System.Text.Json;
 using System.Windows;
 using System.Windows.Controls;
@@ -35,6 +36,7 @@ public partial class MainWindow : Window
     private const int GaRoot = 2;
     private const int DwmwaExtendedFrameBounds = 9;
     private const int FullscreenEdgeTolerancePixels = 2;
+    private const int MaxWindowTextLength = 512;
     private const string ProjectHomeUrl = "https://github.com/litefeel/SideDock";
     private const string RunRegistryKeyPath = @"Software\Microsoft\Windows\CurrentVersion\Run";
     private const string RunRegistryValueName = "SideDock";
@@ -48,6 +50,29 @@ public partial class MainWindow : Window
     {
         PropertyNameCaseInsensitive = true
     };
+
+    private static readonly string[] ScreenshotProcessNames =
+    [
+        "FSCapture",
+        "Greenshot",
+        "Lightshot",
+        "PicPick",
+        "ScreenClippingHost",
+        "ShareX",
+        "Snipaste",
+        "SnippingTool"
+    ];
+
+    private static readonly string[] ScreenshotWindowKeywords =
+    [
+        "capture",
+        "screen clipping",
+        "screenshot",
+        "screenclip",
+        "snip",
+        "\u622A\u56FE",
+        "\u622A\u5C4F"
+    ];
 
     private const string ExternalBlankLinkMessageType = "sideDock.openExternalBlankLink";
     private const string ExternalBlankLinkScript = """
@@ -1120,7 +1145,6 @@ public partial class MainWindow : Window
         }
 
         _cursorLeftAt = null;
-        _appBarManager?.Unregister();
         _isAutoHiddenForFullscreen = true;
         Hide();
     }
@@ -1856,7 +1880,54 @@ public partial class MainWindow : Window
         };
 
         return GetMonitorInfo(foregroundMonitor, ref monitorInfo)
-            && CoversMonitor(windowRect, monitorInfo.rcMonitor);
+            && CoversMonitor(windowRect, monitorInfo.rcMonitor)
+            && !IsScreenshotCaptureWindow(foregroundWindow);
+    }
+
+    private static bool IsScreenshotCaptureWindow(IntPtr hwnd)
+    {
+        if (GetWindowThreadProcessId(hwnd, out var processId) != 0)
+        {
+            try
+            {
+                using var process = Process.GetProcessById((int)processId);
+                if (ScreenshotProcessNames.Contains(process.ProcessName, StringComparer.OrdinalIgnoreCase))
+                {
+                    return true;
+                }
+            }
+            catch (ArgumentException)
+            {
+            }
+            catch (InvalidOperationException)
+            {
+            }
+        }
+
+        return ContainsScreenshotKeyword(GetWindowClassName(hwnd))
+            || ContainsScreenshotKeyword(GetWindowTitle(hwnd));
+    }
+
+    private static bool ContainsScreenshotKeyword(string value)
+    {
+        return !string.IsNullOrWhiteSpace(value)
+            && ScreenshotWindowKeywords.Any(keyword => value.Contains(keyword, StringComparison.OrdinalIgnoreCase));
+    }
+
+    private static string GetWindowClassName(IntPtr hwnd)
+    {
+        var builder = new StringBuilder(MaxWindowTextLength);
+        return GetClassName(hwnd, builder, builder.Capacity) > 0
+            ? builder.ToString()
+            : string.Empty;
+    }
+
+    private static string GetWindowTitle(IntPtr hwnd)
+    {
+        var builder = new StringBuilder(MaxWindowTextLength);
+        return GetWindowText(hwnd, builder, builder.Capacity) > 0
+            ? builder.ToString()
+            : string.Empty;
     }
 
     private bool IsSideDockWindow(IntPtr hwnd)
@@ -1980,6 +2051,15 @@ public partial class MainWindow : Window
 
     [DllImport("user32.dll")]
     private static extern bool IsIconic(IntPtr hwnd);
+
+    [DllImport("user32.dll")]
+    private static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint lpdwProcessId);
+
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+    private static extern int GetClassName(IntPtr hWnd, StringBuilder lpClassName, int nMaxCount);
+
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+    private static extern int GetWindowText(IntPtr hWnd, StringBuilder lpString, int nMaxCount);
 
     [DllImport("user32.dll")]
     private static extern IntPtr MonitorFromWindow(IntPtr hwnd, int dwFlags);
