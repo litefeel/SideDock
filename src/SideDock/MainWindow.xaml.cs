@@ -736,6 +736,7 @@ public partial class MainWindow : Window
         DockRightMenuItem.IsChecked = dockSide == AppDockSide.Right;
 
         StartWithWindowsMenuItem.IsChecked = _settings.StartWithWindows;
+        CurrentVersionMenuItem.Header = $"Version {GetCurrentVersion()}";
     }
 
     private AppThemeMode GetThemeMode()
@@ -998,14 +999,19 @@ public partial class MainWindow : Window
 
     private void OnAboutClick(object sender, RoutedEventArgs e)
     {
-        var version = Assembly.GetExecutingAssembly()
+        var version = GetCurrentVersion();
+
+        SetStatus($"Opening SideDock {version} project page...");
+        OpenExternal(ProjectHomeUrl);
+    }
+
+    private static string GetCurrentVersion()
+    {
+        return Assembly.GetExecutingAssembly()
             .GetCustomAttribute<AssemblyInformationalVersionAttribute>()
             ?.InformationalVersion
             ?? Assembly.GetExecutingAssembly().GetName().Version?.ToString()
             ?? "unknown";
-
-        SetStatus($"Opening SideDock {version} project page...");
-        OpenExternal(ProjectHomeUrl);
     }
 
     private void OnExitClick(object sender, RoutedEventArgs e)
