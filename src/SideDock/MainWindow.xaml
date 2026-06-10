@@ -132,8 +132,9 @@
                                     <MenuItem x:Name="DockLeftMenuItem" Header="Left" Tag="Left" IsCheckable="True" Click="OnDockSideMenuItemClick" />
                                     <MenuItem x:Name="DockRightMenuItem" Header="Right" Tag="Right" IsCheckable="True" Click="OnDockSideMenuItemClick" />
                                 </MenuItem>
+                                <MenuItem x:Name="StartWithWindowsMenuItem" Header="Start with Windows" IsCheckable="True" Click="OnStartWithWindowsClick" />
                                 <Separator />
-                                <MenuItem Header="Version" Click="OnVersionClick" />
+                                <MenuItem Header="About" Click="OnAboutClick" />
                                 <MenuItem Header="Exit" Click="OnExitClick" />
                             </ContextMenu>
                         </Button.ContextMenu>

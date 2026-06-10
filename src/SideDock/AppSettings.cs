@@ -11,6 +11,7 @@ public sealed class AppSettings
     public double CollapsedWidth { get; set; } = 48;
     public int AutoHideDelayMilliseconds { get; set; } = 600;
     public bool TopmostByDefault { get; set; } = true;
+    public bool StartWithWindows { get; set; } = false;
     public string ThemeMode { get; set; } = nameof(AppThemeMode.System);
     public string DockSide { get; set; } = nameof(AppDockSide.Right);
     public List<ToolDefinition> Tools { get; set; } = [];

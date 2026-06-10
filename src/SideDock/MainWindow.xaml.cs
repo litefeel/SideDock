@@ -29,6 +29,9 @@ public partial class MainWindow : Window
     private const int PreferredIconFrameSize = 48;
     private const int SystemMetricCxScreen = 0;
     private const int SystemMetricCyScreen = 1;
+    private const string ProjectHomeUrl = "https://github.com/litefeel/SideDock";
+    private const string RunRegistryKeyPath = @"Software\Microsoft\Windows\CurrentVersion\Run";
+    private const string RunRegistryValueName = "SideDock";
 
     private static readonly HttpClient IconHttpClient = new()
     {
@@ -99,6 +102,7 @@ public partial class MainWindow : Window
         InitializeComponent();
 
         ApplyTheme();
+        ApplyStartupSetting();
         ApplyDockSideLayout();
         _expandedWidth = ClampExpandedWidth(_settings.DefaultExpandedWidth);
         Width = _expandedWidth;
@@ -205,6 +209,7 @@ public partial class MainWindow : Window
         await browser.EnsureCoreWebView2Async(_webViewEnvironment);
         browser.CoreWebView2.Settings.AreDefaultContextMenusEnabled = true;
         browser.CoreWebView2.Settings.AreDevToolsEnabled = true;
+        ApplyBrowserTheme(browser);
         await browser.CoreWebView2.AddScriptToExecuteOnDocumentCreatedAsync(ExternalBlankLinkScript);
         browser.CoreWebView2.WebMessageReceived += (_, args) => OnBrowserWebMessageReceived(args);
         browser.CoreWebView2.NavigationStarting += (_, _) => OnBrowserNavigationStarting(item.Tool);
@@ -701,6 +706,7 @@ public partial class MainWindow : Window
         _settings.ThemeMode = AppSettings.NormalizeThemeMode(themeMode).ToString();
         AppSettings.Save(_settings);
         ApplyTheme();
+        ApplyBrowserThemes();
         UpdateSettingsMenuChecks();
     }
 
@@ -728,6 +734,8 @@ public partial class MainWindow : Window
         var dockSide = GetDockSide();
         DockLeftMenuItem.IsChecked = dockSide == AppDockSide.Left;
         DockRightMenuItem.IsChecked = dockSide == AppDockSide.Right;
+
+        StartWithWindowsMenuItem.IsChecked = _settings.StartWithWindows;
     }
 
     private AppThemeMode GetThemeMode()
@@ -815,6 +823,29 @@ public partial class MainWindow : Window
         SetThemeBrush("ResizePreviewBackground", Color.FromRgb(11, 13, 17));
     }
 
+    private void ApplyBrowserThemes()
+    {
+        foreach (var browser in _browsers.Values)
+        {
+            ApplyBrowserTheme(browser);
+        }
+    }
+
+    private void ApplyBrowserTheme(WebView2 browser)
+    {
+        if (browser.CoreWebView2 is null)
+        {
+            return;
+        }
+
+        browser.CoreWebView2.Profile.PreferredColorScheme = GetThemeMode() switch
+        {
+            AppThemeMode.Dark => CoreWebView2PreferredColorScheme.Dark,
+            AppThemeMode.Light => CoreWebView2PreferredColorScheme.Light,
+            _ => CoreWebView2PreferredColorScheme.Auto
+        };
+    }
+
     private void SetThemeBrush(string key, Color color)
     {
         Resources[key] = new SolidColorBrush(color);
@@ -843,6 +874,65 @@ public partial class MainWindow : Window
 
         _settings.DefaultExpandedWidth = width;
         AppSettings.Save(_settings);
+    }
+
+    private void OnStartWithWindowsClick(object sender, RoutedEventArgs e)
+    {
+        _settings.StartWithWindows = !_settings.StartWithWindows;
+        AppSettings.Save(_settings);
+        ApplyStartupSetting();
+        UpdateSettingsMenuChecks();
+    }
+
+    private void ApplyStartupSetting()
+    {
+        try
+        {
+            using var key = Registry.CurrentUser.CreateSubKey(RunRegistryKeyPath);
+            if (key is null)
+            {
+                SetStatus("Could not update startup setting.");
+                return;
+            }
+
+            if (_settings.StartWithWindows && TryGetStartupCommand(out var command))
+            {
+                key.SetValue(RunRegistryValueName, command, RegistryValueKind.String);
+                return;
+            }
+
+            key.DeleteValue(RunRegistryValueName, throwOnMissingValue: false);
+        }
+        catch (Exception ex)
+        {
+            SetStatus($"Could not update startup setting: {ex.Message}");
+        }
+    }
+
+    private static bool TryGetStartupCommand(out string command)
+    {
+        command = string.Empty;
+
+        var executablePath = Environment.ProcessPath;
+        if (string.IsNullOrWhiteSpace(executablePath))
+        {
+            try
+            {
+                executablePath = Process.GetCurrentProcess().MainModule?.FileName;
+            }
+            catch
+            {
+                executablePath = null;
+            }
+        }
+
+        if (string.IsNullOrWhiteSpace(executablePath))
+        {
+            return false;
+        }
+
+        command = $"\"{executablePath}\"";
+        return true;
     }
 
     private async void OnAddUrlClick(object sender, RoutedEventArgs e)
@@ -906,7 +996,7 @@ public partial class MainWindow : Window
         ShowSelectedTool();
     }
 
-    private void OnVersionClick(object sender, RoutedEventArgs e)
+    private void OnAboutClick(object sender, RoutedEventArgs e)
     {
         var version = Assembly.GetExecutingAssembly()
             .GetCustomAttribute<AssemblyInformationalVersionAttribute>()
@@ -914,11 +1004,8 @@ public partial class MainWindow : Window
             ?? Assembly.GetExecutingAssembly().GetName().Version?.ToString()
             ?? "unknown";
 
-        MessageBox.Show(
-            $"SideDock {version}",
-            "SideDock",
-            MessageBoxButton.OK,
-            MessageBoxImage.Information);
+        SetStatus($"Opening SideDock {version} project page...");
+        OpenExternal(ProjectHomeUrl);
     }
 
     private void OnExitClick(object sender, RoutedEventArgs e)
@@ -1708,6 +1795,7 @@ public partial class MainWindow : Window
             Dispatcher.BeginInvoke(() =>
             {
                 ApplyTheme();
+                ApplyBrowserThemes();
                 DockToConfiguredEdge(_isExpanded ? _expandedWidth : _settings.CollapsedWidth);
             });
         }

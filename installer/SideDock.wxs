@@ -37,12 +37,6 @@
           Target="[INSTALLFOLDER]SideDock.exe"
           WorkingDirectory="INSTALLFOLDER"
           Icon="SideDockIcon" />
-        <RegistryValue
-          Root="HKCU"
-          Key="Software\Microsoft\Windows\CurrentVersion\Run"
-          Name="SideDock"
-          Type="string"
-          Value="&quot;[INSTALLFOLDER]SideDock.exe&quot;" />
       </Component>
 
       <Component Id="AppSettingsComponent" Guid="{91B1B86E-52E7-4EC4-8493-8D6B7F5789D8}">
