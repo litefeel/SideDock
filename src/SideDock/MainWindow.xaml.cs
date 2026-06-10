@@ -60,7 +60,7 @@ public partial class MainWindow : Window
                 const element = event.target instanceof Element ? event.target : event.target?.parentElement;
                 const anchor = element?.closest?.('a[target]');
                 const target = anchor?.getAttribute('target')?.trim().toLowerCase();
-                if (!anchor || target !== '_blank' || !anchor.href) {
+                if (!anchor || (target !== '_blank' && target !== '_new') || !anchor.href) {
                     return;
                 }
 
