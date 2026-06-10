@@ -27,25 +27,25 @@ scripts\Build-Installer.cmd
 Build a specific installer version:
 
 ```cmd
-scripts\Build-Installer.cmd 0.0.13 win-x64
+scripts\Build-Installer.cmd 0.0.14 win-x64
 ```
 
 Build the smaller framework-dependent installer without the .NET runtime:
 
 ```cmd
-scripts\Build-Installer.cmd 0.0.13 win-x64 no-runtime
+scripts\Build-Installer.cmd 0.0.14 win-x64 no-runtime
 ```
 
 This publishes a self-contained `win-x64` release with `PublishReadyToRun=true`, then builds:
 
 ```text
-artifacts\installer\SideDock-0.0.13-win-x64.msi
+artifacts\installer\SideDock-0.0.14-win-x64.msi
 ```
 
 The no-runtime variant builds:
 
 ```text
-artifacts\installer\SideDock-0.0.13-win-x64-no-runtime.msi
+artifacts\installer\SideDock-0.0.14-win-x64-no-runtime.msi
 ```
 
 WPF does not support .NET NativeAOT, so this project uses ReadyToRun AOT publishing instead of NativeAOT.
@@ -53,7 +53,7 @@ WPF does not support .NET NativeAOT, so this project uses ReadyToRun AOT publish
 Install:
 
 ```cmd
-msiexec /i artifacts\installer\SideDock-0.0.13-win-x64.msi
+msiexec /i artifacts\installer\SideDock-0.0.14-win-x64.msi
 ```
 
 The MSI installs SideDock for the current user under `%LOCALAPPDATA%\Programs\SideDock` and creates a Start Menu shortcut. Startup can be enabled or disabled from the app settings menu.
@@ -62,11 +62,11 @@ Uninstall from Windows Settings under installed apps, or use Programs and Featur
 
 ## Release
 
-Create and publish a GitHub Release with a tag like `v0.0.13`. The `Release MSI` workflow will build and attach both MSI release assets from that tag:
+Create and publish a GitHub Release with a tag like `v0.0.14`. The `Release MSI` workflow will build and attach both MSI release assets from that tag:
 
 ```text
-SideDock-0.0.13-win-x64.msi
-SideDock-0.0.13-win-x64-no-runtime.msi
+SideDock-0.0.14-win-x64.msi
+SideDock-0.0.14-win-x64-no-runtime.msi
 ```
 
 Release tags must use three numeric version parts, optionally prefixed with `v`, because Windows Installer product versions do not support prerelease labels.
