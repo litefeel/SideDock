@@ -7,7 +7,7 @@
         Width="430"
         Height="720"
         MinWidth="48"
-        MinHeight="320"
+        MinHeight="48"
         ResizeMode="NoResize"
         WindowStyle="None"
         AllowsTransparency="True"
@@ -131,6 +131,47 @@
                 </Setter.Value>
             </Setter>
         </Style>
+
+        <DataTemplate x:Key="ToolIconTemplate">
+            <Grid Width="24"
+                  Height="24"
+                  ToolTip="{Binding Tool.Title}">
+                <Border x:Name="DefaultIcon"
+                        Width="24"
+                        Height="24"
+                        CornerRadius="4"
+                        Background="{DynamicResource DefaultIconBackground}"
+                        HorizontalAlignment="Center"
+                        VerticalAlignment="Center">
+                    <TextBlock Text="&#xE774;"
+                               FontFamily="Segoe MDL2 Assets"
+                               FontSize="14"
+                               Foreground="{DynamicResource DefaultIconForeground}"
+                               HorizontalAlignment="Center"
+                               VerticalAlignment="Center" />
+                </Border>
+                <Border x:Name="SiteIconFrame"
+                        Width="24"
+                        Height="24"
+                        CornerRadius="4"
+                        HorizontalAlignment="Center"
+                        VerticalAlignment="Center">
+                    <Border.Background>
+                        <ImageBrush ImageSource="{Binding Icon}"
+                                    Stretch="UniformToFill"
+                                    RenderOptions.BitmapScalingMode="HighQuality" />
+                    </Border.Background>
+                </Border>
+            </Grid>
+            <DataTemplate.Triggers>
+                <DataTrigger Binding="{Binding HasIcon}" Value="False">
+                    <Setter TargetName="SiteIconFrame" Property="Visibility" Value="Collapsed" />
+                </DataTrigger>
+                <DataTrigger Binding="{Binding HasIcon}" Value="True">
+                    <Setter TargetName="DefaultIcon" Property="Visibility" Value="Collapsed" />
+                </DataTrigger>
+            </DataTemplate.Triggers>
+        </DataTemplate>
     </Window.Resources>
 
     <Grid x:Name="Root">
@@ -147,7 +188,9 @@
                     Background="{DynamicResource RailBackground}"
                     BorderBrush="{DynamicResource RailBorderBrush}"
                     BorderThickness="1,0,0,0">
-                <DockPanel LastChildFill="True">
+                <Grid>
+                <DockPanel x:Name="ExpandedRailPanel"
+                           LastChildFill="True">
                     <Button x:Name="SettingsButton"
                             DockPanel.Dock="Bottom"
                             Style="{StaticResource RailIconButtonStyle}"
@@ -230,46 +273,24 @@
                             </Style>
                         </ListBox.ItemContainerStyle>
                         <ListBox.ItemTemplate>
-                            <DataTemplate>
-                                <Grid Width="24"
-                                      Height="24"
-                                      ToolTip="{Binding Tool.Title}">
-                                    <Border x:Name="DefaultIcon"
-                                            Width="24"
-                                            Height="24"
-                                            CornerRadius="0"
-                                            Background="{DynamicResource DefaultIconBackground}"
-                                            HorizontalAlignment="Center"
-                                            VerticalAlignment="Center">
-                                        <TextBlock Text="&#xE774;"
-                                                   FontFamily="Segoe MDL2 Assets"
-                                                   FontSize="14"
-                                                   Foreground="{DynamicResource DefaultIconForeground}"
-                                                   HorizontalAlignment="Center"
-                                                   VerticalAlignment="Center" />
-                                    </Border>
-                                    <Image x:Name="SiteIcon"
-                                           Width="24"
-                                           Height="24"
-                                           Source="{Binding Icon}"
-                                           Stretch="Fill"
-                                           RenderOptions.BitmapScalingMode="HighQuality"
-                                           SnapsToDevicePixels="True"
-                                           HorizontalAlignment="Center"
-                                           VerticalAlignment="Center" />
-                                </Grid>
-                                <DataTemplate.Triggers>
-                                    <DataTrigger Binding="{Binding HasIcon}" Value="False">
-                                        <Setter TargetName="SiteIcon" Property="Visibility" Value="Collapsed" />
-                                    </DataTrigger>
-                                    <DataTrigger Binding="{Binding HasIcon}" Value="True">
-                                        <Setter TargetName="DefaultIcon" Property="Visibility" Value="Collapsed" />
-                                    </DataTrigger>
-                                </DataTemplate.Triggers>
-                            </DataTemplate>
+                            <StaticResource ResourceKey="ToolIconTemplate" />
                         </ListBox.ItemTemplate>
                     </ListBox>
                 </DockPanel>
+
+                <Button x:Name="CollapsedIconButton"
+                        Style="{StaticResource RailIconButtonStyle}"
+                        Width="40"
+                        Height="40"
+                        Margin="4"
+                        HorizontalAlignment="Center"
+                        VerticalAlignment="Center"
+                        Content="{Binding SelectedItem, ElementName=ToolList}"
+                        ContentTemplate="{StaticResource ToolIconTemplate}"
+                        ToolTip="{Binding SelectedItem.Tool.Title, ElementName=ToolList}"
+                        Visibility="Collapsed"
+                        Click="OnCollapsedIconClick" />
+                </Grid>
             </Border>
 
             <Grid x:Name="ContentPanel"

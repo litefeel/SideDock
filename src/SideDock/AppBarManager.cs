@@ -20,6 +20,7 @@ internal sealed class AppBarManager
     private bool _isRegistered;
     private double _reservedWidthDips;
     private double _windowWidthDips;
+    private double _windowHeightDips;
     private AppDockSide _dockSide = AppDockSide.Right;
 
     public AppBarManager(nint hwnd)
@@ -30,11 +31,11 @@ internal sealed class AppBarManager
 
     public uint CallbackMessage => _callbackMessage;
 
-    public void Register(double reservedWidthDips, double windowWidthDips, AppDockSide dockSide)
+    public void Register(double reservedWidthDips, double windowWidthDips, double windowHeightDips, AppDockSide dockSide)
     {
         if (_isRegistered)
         {
-            Apply(reservedWidthDips, windowWidthDips, dockSide);
+            Apply(reservedWidthDips, windowWidthDips, windowHeightDips, dockSide);
             return;
         }
 
@@ -42,13 +43,14 @@ internal sealed class AppBarManager
         data.uCallbackMessage = _callbackMessage;
         SHAppBarMessage(AbmNew, ref data);
         _isRegistered = true;
-        Apply(reservedWidthDips, windowWidthDips, dockSide);
+        Apply(reservedWidthDips, windowWidthDips, windowHeightDips, dockSide);
     }
 
-    public void Apply(double reservedWidthDips, double windowWidthDips, AppDockSide dockSide)
+    public void Apply(double reservedWidthDips, double windowWidthDips, double windowHeightDips, AppDockSide dockSide)
     {
         _reservedWidthDips = reservedWidthDips;
         _windowWidthDips = windowWidthDips;
+        _windowHeightDips = windowHeightDips;
         _dockSide = dockSide;
         if (!_isRegistered)
         {
@@ -58,6 +60,7 @@ internal sealed class AppBarManager
         var monitor = GetMonitorRect();
         var reservedWidthPixels = Math.Max(1, DipsToPixels(reservedWidthDips));
         var windowWidthPixels = Math.Max(reservedWidthPixels, DipsToPixels(windowWidthDips));
+        var requestedWindowHeightPixels = Math.Max(1, DipsToPixels(windowHeightDips));
 
         var data = CreateData();
         data.uEdge = (uint)(dockSide == AppDockSide.Left ? AbeLeft : AbeRight);
@@ -92,20 +95,23 @@ internal sealed class AppBarManager
         var windowLeft = dockSide == AppDockSide.Left
             ? data.rc.Left
             : data.rc.Right - windowWidthPixels;
+        var appBarHeightPixels = data.rc.Bottom - data.rc.Top;
+        var windowHeightPixels = Math.Min(requestedWindowHeightPixels, appBarHeightPixels);
+        var windowTop = data.rc.Top + Math.Max(0, (appBarHeightPixels - windowHeightPixels) / 2);
 
         SetWindowPos(
             _hwnd,
             nint.Zero,
             windowLeft,
-            data.rc.Top,
+            windowTop,
             windowWidthPixels,
-            data.rc.Bottom - data.rc.Top,
+            windowHeightPixels,
             SwpNoActivate | SwpNoZOrder);
     }
 
     public void Refresh()
     {
-        Apply(_reservedWidthDips, _windowWidthDips, _dockSide);
+        Apply(_reservedWidthDips, _windowWidthDips, _windowHeightDips, _dockSide);
     }
 
     public void Unregister()

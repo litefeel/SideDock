@@ -147,6 +147,7 @@ public partial class MainWindow : Window
         _expandedWidth = ClampExpandedWidth(_settings.DefaultExpandedWidth);
         Width = _expandedWidth;
         MinWidth = _settings.CollapsedWidth;
+        MinHeight = _settings.CollapsedWidth;
         Topmost = true;
 
         _toolItems = new ObservableCollection<ToolItem>(_settings.Tools.Select(tool => new ToolItem(tool)));
@@ -176,7 +177,7 @@ public partial class MainWindow : Window
         _hwndSource?.AddHook(WndProc);
 
         _appBarManager = new AppBarManager(handle);
-        _appBarManager.Register(GetReservedWidth(Width), Width, GetDockSide());
+        _appBarManager.Register(GetReservedWidth(Width), Width, GetDockWindowHeight(), GetDockSide());
     }
 
     private void OnClosing(object? sender, CancelEventArgs e)
@@ -795,6 +796,13 @@ public partial class MainWindow : Window
         var railWidth = _settings.CollapsedWidth;
         var resizeWidth = _isExpanded ? 18 : 0;
 
+        ExpandedRailPanel.Visibility = _isExpanded ? Visibility.Visible : Visibility.Collapsed;
+        CollapsedIconButton.Visibility = _isExpanded ? Visibility.Collapsed : Visibility.Visible;
+        RailBorder.CornerRadius = _isExpanded ? new CornerRadius(0) : new CornerRadius(10);
+        RailBorder.BorderThickness = _isExpanded
+            ? RailBorder.BorderThickness
+            : new Thickness(1);
+
         if (dockSide == AppDockSide.Left)
         {
             ResizeColumn.Width = new GridLength(railWidth);
@@ -802,7 +810,10 @@ public partial class MainWindow : Window
             Grid.SetColumn(RailBorder, 0);
             Grid.SetColumn(ContentPanel, 1);
             Grid.SetColumn(ResizeGrip, 2);
-            RailBorder.BorderThickness = new Thickness(0, 0, 1, 0);
+            if (_isExpanded)
+            {
+                RailBorder.BorderThickness = new Thickness(0, 0, 1, 0);
+            }
         }
         else
         {
@@ -811,7 +822,10 @@ public partial class MainWindow : Window
             Grid.SetColumn(ResizeGrip, 0);
             Grid.SetColumn(ContentPanel, 1);
             Grid.SetColumn(RailBorder, 2);
-            RailBorder.BorderThickness = new Thickness(1, 0, 0, 0);
+            if (_isExpanded)
+            {
+                RailBorder.BorderThickness = new Thickness(1, 0, 0, 0);
+            }
         }
     }
 
@@ -1070,6 +1084,11 @@ public partial class MainWindow : Window
         OpenExternal(GetCurrentUrl());
     }
 
+    private void OnCollapsedIconClick(object sender, RoutedEventArgs e)
+    {
+        Expand();
+    }
+
     private void OnHideClick(object sender, RoutedEventArgs e)
     {
         Collapse(force: true);
@@ -1176,7 +1195,7 @@ public partial class MainWindow : Window
         ApplyTopmostState();
 
         var currentWidth = _isExpanded ? _expandedWidth : _settings.CollapsedWidth;
-        _appBarManager?.Register(GetReservedWidth(currentWidth), currentWidth, GetDockSide());
+        _appBarManager?.Register(GetReservedWidth(currentWidth), currentWidth, GetDockWindowHeight(), GetDockSide());
         DockToConfiguredEdge(currentWidth);
     }
 
@@ -1533,8 +1552,9 @@ public partial class MainWindow : Window
         var clampedWidth = _isExpanded
             ? ClampExpandedWidth(width)
             : _settings.CollapsedWidth;
+        var windowHeight = GetDockWindowHeight();
         Width = clampedWidth;
-        Height = SystemParameters.PrimaryScreenHeight;
+        Height = windowHeight;
 
         if (_isAutoHiddenForFullscreen)
         {
@@ -1543,7 +1563,7 @@ public partial class MainWindow : Window
 
         if (_appBarManager is not null)
         {
-            _appBarManager.Apply(GetReservedWidth(clampedWidth), clampedWidth, GetDockSide());
+            _appBarManager.Apply(GetReservedWidth(clampedWidth), clampedWidth, windowHeight, GetDockSide());
             return;
         }
 
@@ -1551,8 +1571,17 @@ public partial class MainWindow : Window
         Left = GetDockSide() == AppDockSide.Left
             ? workArea.Left
             : workArea.Right - clampedWidth;
-        Top = workArea.Top;
-        Height = workArea.Height;
+        Top = _isExpanded
+            ? workArea.Top
+            : workArea.Top + Math.Max(0, (workArea.Height - windowHeight) / 2);
+        Height = _isExpanded ? workArea.Height : windowHeight;
+    }
+
+    private double GetDockWindowHeight()
+    {
+        return _isExpanded
+            ? SystemParameters.PrimaryScreenHeight
+            : _settings.CollapsedWidth;
     }
 
     private Rect GetWindowScreenRect()
