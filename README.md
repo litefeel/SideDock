@@ -27,25 +27,25 @@ scripts\Build-Installer.cmd
 Build a specific installer version:
 
 ```cmd
-scripts\Build-Installer.cmd 0.0.11 win-x64
+scripts\Build-Installer.cmd 0.0.12 win-x64
 ```
 
 Build the smaller framework-dependent installer without the .NET runtime:
 
 ```cmd
-scripts\Build-Installer.cmd 0.0.11 win-x64 no-runtime
+scripts\Build-Installer.cmd 0.0.12 win-x64 no-runtime
 ```
 
 This publishes a self-contained `win-x64` release with `PublishReadyToRun=true`, then builds:
 
 ```text
-artifacts\installer\SideDock-0.0.11-win-x64.msi
+artifacts\installer\SideDock-0.0.12-win-x64.msi
 ```
 
 The no-runtime variant builds:
 
 ```text
-artifacts\installer\SideDock-0.0.11-win-x64-no-runtime.msi
+artifacts\installer\SideDock-0.0.12-win-x64-no-runtime.msi
 ```
 
 WPF does not support .NET NativeAOT, so this project uses ReadyToRun AOT publishing instead of NativeAOT.
@@ -53,7 +53,7 @@ WPF does not support .NET NativeAOT, so this project uses ReadyToRun AOT publish
 Install:
 
 ```cmd
-msiexec /i artifacts\installer\SideDock-0.0.11-win-x64.msi
+msiexec /i artifacts\installer\SideDock-0.0.12-win-x64.msi
 ```
 
 The MSI installs SideDock for the current user under `%LOCALAPPDATA%\Programs\SideDock` and creates a Start Menu shortcut. Startup can be enabled or disabled from the app settings menu.
@@ -62,11 +62,11 @@ Uninstall from Windows Settings under installed apps, or use Programs and Featur
 
 ## Release
 
-Create and publish a GitHub Release with a tag like `v0.0.11`. The `Release MSI` workflow will build and attach both MSI release assets from that tag:
+Create and publish a GitHub Release with a tag like `v0.0.12`. The `Release MSI` workflow will build and attach both MSI release assets from that tag:
 
 ```text
-SideDock-0.0.11-win-x64.msi
-SideDock-0.0.11-win-x64-no-runtime.msi
+SideDock-0.0.12-win-x64.msi
+SideDock-0.0.12-win-x64-no-runtime.msi
 ```
 
 Release tags must use three numeric version parts, optionally prefixed with `v`, because Windows Installer product versions do not support prerelease labels.
@@ -77,7 +77,7 @@ Open `SideDock.slnx` in Visual Studio 2022 or later. Set `SideDock` as the start
 
 The app targets `net10.0-windows`, so Visual Studio must have the .NET 10 SDK and the .NET desktop development workload installed. The target machine also needs Microsoft Edge WebView2 Runtime.
 
-The sidebar starts as a persistent right-edge icon rail by default and always registers that rail as a Windows appbar, so maximized windows avoid the icon rail. The dock side can be changed to left or right from the settings menu. The rail shows each site's favicon only; missing favicons use a default icon, and loaded favicons are cached under `%LOCALAPPDATA%\SideDock\Icons` for immediate display on the next launch.
+The sidebar starts as a persistent right-edge icon rail by default and always registers that rail as a Windows appbar, so maximized windows avoid the icon rail. When another application is fullscreen on the same monitor, SideDock automatically hides and releases its appbar space until fullscreen ends. The dock side can be changed to left or right from the settings menu. The rail shows each site's favicon only; missing favicons use a default icon, and loaded favicons are cached under `%LOCALAPPDATA%\SideDock\Icons` for immediate display on the next launch.
 
 Only clicking a site icon expands the web panel. The app is always topmost. The expanded toolbar contains only open externally, pin, hide, and close-page buttons. Pin is shared across all sites.
 

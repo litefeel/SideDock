@@ -25,10 +25,16 @@ public partial class MainWindow : Window
     private const int WmSettingChange = 0x001A;
     private const int WmDpiChanged = 0x02E0;
     private const int AbnPosChanged = 0x00000001;
+    private const int AbnFullscreenApp = 0x00000002;
     private const int DisplayIconSize = 24;
     private const int PreferredIconFrameSize = 48;
     private const int SystemMetricCxScreen = 0;
     private const int SystemMetricCyScreen = 1;
+    private const int MonitorDefaultToNull = 0x00000000;
+    private const int MonitorDefaultToNearest = 0x00000002;
+    private const int GaRoot = 2;
+    private const int DwmwaExtendedFrameBounds = 9;
+    private const int FullscreenEdgeTolerancePixels = 2;
     private const string ProjectHomeUrl = "https://github.com/litefeel/SideDock";
     private const string RunRegistryKeyPath = @"Software\Microsoft\Windows\CurrentVersion\Run";
     private const string RunRegistryValueName = "SideDock";
@@ -94,6 +100,7 @@ public partial class MainWindow : Window
     private WebView2? _resizePreviewBrowser;
     private bool _isContentHiddenForResize;
     private bool _areWebViewsReady;
+    private bool _isAutoHiddenForFullscreen;
     private HwndSource? _hwndSource;
     private AppBarManager? _appBarManager;
 
@@ -1063,6 +1070,16 @@ public partial class MainWindow : Window
 
     private void OnCursorTimerTick(object? sender, EventArgs e)
     {
+        if (!_isResizing)
+        {
+            UpdateFullscreenAutoHideState();
+        }
+
+        if (_isAutoHiddenForFullscreen)
+        {
+            return;
+        }
+
         if (!_isExpanded || _isResizing || !TryGetCursorPosition(out var cursor))
         {
             return;
@@ -1082,6 +1099,47 @@ public partial class MainWindow : Window
         {
             Collapse();
         }
+    }
+
+    private void UpdateFullscreenAutoHideState()
+    {
+        if (IsAnotherWindowFullscreenOnCurrentMonitor())
+        {
+            HideForFullscreenApp();
+            return;
+        }
+
+        RestoreAfterFullscreenApp();
+    }
+
+    private void HideForFullscreenApp()
+    {
+        if (_isAutoHiddenForFullscreen)
+        {
+            return;
+        }
+
+        _cursorLeftAt = null;
+        _appBarManager?.Unregister();
+        _isAutoHiddenForFullscreen = true;
+        Hide();
+    }
+
+    private void RestoreAfterFullscreenApp()
+    {
+        if (!_isAutoHiddenForFullscreen)
+        {
+            return;
+        }
+
+        _isAutoHiddenForFullscreen = false;
+        ShowActivated = false;
+        Show();
+        ApplyTopmostState();
+
+        var currentWidth = _isExpanded ? _expandedWidth : _settings.CollapsedWidth;
+        _appBarManager?.Register(GetReservedWidth(currentWidth), currentWidth, GetDockSide());
+        DockToConfiguredEdge(currentWidth);
     }
 
     private void Expand()
@@ -1440,6 +1498,11 @@ public partial class MainWindow : Window
         Width = clampedWidth;
         Height = SystemParameters.PrimaryScreenHeight;
 
+        if (_isAutoHiddenForFullscreen)
+        {
+            return;
+        }
+
         if (_appBarManager is not null)
         {
             _appBarManager.Apply(GetReservedWidth(clampedWidth), clampedWidth, GetDockSide());
@@ -1755,6 +1818,78 @@ public partial class MainWindow : Window
         Topmost = true;
     }
 
+    private bool IsAnotherWindowFullscreenOnCurrentMonitor()
+    {
+        var ownerHandle = _hwndSource?.Handle ?? IntPtr.Zero;
+        if (ownerHandle == IntPtr.Zero)
+        {
+            return false;
+        }
+
+        var foregroundWindow = GetAncestor(GetForegroundWindow(), GaRoot);
+        if (foregroundWindow == IntPtr.Zero
+            || IsSideDockWindow(foregroundWindow)
+            || foregroundWindow == GetShellWindow()
+            || !IsWindowVisible(foregroundWindow)
+            || IsIconic(foregroundWindow))
+        {
+            return false;
+        }
+
+        var sideDockMonitor = MonitorFromWindow(ownerHandle, MonitorDefaultToNearest);
+        var foregroundMonitor = MonitorFromWindow(foregroundWindow, MonitorDefaultToNull);
+        if (sideDockMonitor == IntPtr.Zero
+            || foregroundMonitor == IntPtr.Zero
+            || sideDockMonitor != foregroundMonitor)
+        {
+            return false;
+        }
+
+        if (!TryGetWindowFrameRect(foregroundWindow, out var windowRect))
+        {
+            return false;
+        }
+
+        var monitorInfo = new MonitorInfo
+        {
+            cbSize = Marshal.SizeOf<MonitorInfo>()
+        };
+
+        return GetMonitorInfo(foregroundMonitor, ref monitorInfo)
+            && CoversMonitor(windowRect, monitorInfo.rcMonitor);
+    }
+
+    private bool IsSideDockWindow(IntPtr hwnd)
+    {
+        if (hwnd == (_hwndSource?.Handle ?? IntPtr.Zero))
+        {
+            return true;
+        }
+
+        return _resizePreviewWindow is not null
+            && hwnd == new WindowInteropHelper(_resizePreviewWindow).Handle;
+    }
+
+    private static bool TryGetWindowFrameRect(IntPtr hwnd, out NativeRect rect)
+    {
+        if (DwmGetWindowAttribute(hwnd, DwmwaExtendedFrameBounds, out rect, Marshal.SizeOf<NativeRect>()) == 0
+            && rect.Right > rect.Left
+            && rect.Bottom > rect.Top)
+        {
+            return true;
+        }
+
+        return GetWindowRect(hwnd, out rect);
+    }
+
+    private static bool CoversMonitor(NativeRect windowRect, NativeRect monitorRect)
+    {
+        return windowRect.Left <= monitorRect.Left + FullscreenEdgeTolerancePixels
+            && windowRect.Top <= monitorRect.Top + FullscreenEdgeTolerancePixels
+            && windowRect.Right >= monitorRect.Right - FullscreenEdgeTolerancePixels
+            && windowRect.Bottom >= monitorRect.Bottom - FullscreenEdgeTolerancePixels;
+    }
+
     private void OpenExternal(string? url)
     {
         if (string.IsNullOrWhiteSpace(url) || url.Equals("about:blank", StringComparison.OrdinalIgnoreCase))
@@ -1790,6 +1925,10 @@ public partial class MainWindow : Window
             if (wParam.ToInt32() == AbnPosChanged)
             {
                 Dispatcher.BeginInvoke(() => _appBarManager.Refresh());
+            }
+            else if (wParam.ToInt32() == AbnFullscreenApp)
+            {
+                Dispatcher.BeginInvoke(UpdateFullscreenAutoHideState);
             }
 
             handled = true;
@@ -1827,11 +1966,56 @@ public partial class MainWindow : Window
     [DllImport("user32.dll")]
     private static extern int GetSystemMetrics(int nIndex);
 
+    [DllImport("user32.dll")]
+    private static extern IntPtr GetForegroundWindow();
+
+    [DllImport("user32.dll")]
+    private static extern IntPtr GetAncestor(IntPtr hwnd, int gaFlags);
+
+    [DllImport("user32.dll")]
+    private static extern IntPtr GetShellWindow();
+
+    [DllImport("user32.dll")]
+    private static extern bool IsWindowVisible(IntPtr hwnd);
+
+    [DllImport("user32.dll")]
+    private static extern bool IsIconic(IntPtr hwnd);
+
+    [DllImport("user32.dll")]
+    private static extern IntPtr MonitorFromWindow(IntPtr hwnd, int dwFlags);
+
+    [DllImport("user32.dll")]
+    private static extern bool GetMonitorInfo(IntPtr hMonitor, ref MonitorInfo lpmi);
+
+    [DllImport("user32.dll")]
+    private static extern bool GetWindowRect(IntPtr hWnd, out NativeRect lpRect);
+
+    [DllImport("dwmapi.dll")]
+    private static extern int DwmGetWindowAttribute(IntPtr hwnd, int dwAttribute, out NativeRect pvAttribute, int cbAttribute);
+
     [StructLayout(LayoutKind.Sequential)]
     private readonly struct NativePoint
     {
         public readonly int X;
         public readonly int Y;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct MonitorInfo
+    {
+        public int cbSize;
+        public NativeRect rcMonitor;
+        public NativeRect rcWork;
+        public uint dwFlags;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct NativeRect
+    {
+        public int Left;
+        public int Top;
+        public int Right;
+        public int Bottom;
     }
 
     private sealed record IconCandidate(string Href, string Rel, string Sizes);
