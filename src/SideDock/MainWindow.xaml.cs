@@ -74,6 +74,14 @@ public partial class MainWindow : Window
         "\u622A\u5C4F"
     ];
 
+    private static readonly string[] ShellWindowClassNames =
+    [
+        "Progman",
+        "WorkerW",
+        "Shell_TrayWnd",
+        "Shell_SecondaryTrayWnd"
+    ];
+
     private const string ExternalBlankLinkMessageType = "sideDock.openExternalBlankLink";
     private const string ExternalBlankLinkScript = """
         (() => {
@@ -1859,7 +1867,7 @@ public partial class MainWindow : Window
         var foregroundWindow = GetAncestor(GetForegroundWindow(), GaRoot);
         if (foregroundWindow == IntPtr.Zero
             || IsSideDockWindow(foregroundWindow)
-            || foregroundWindow == GetShellWindow()
+            || IsShellWindow(foregroundWindow)
             || !IsWindowVisible(foregroundWindow)
             || IsIconic(foregroundWindow))
         {
@@ -1912,6 +1920,17 @@ public partial class MainWindow : Window
 
         return ContainsScreenshotKeyword(GetWindowClassName(hwnd))
             || ContainsScreenshotKeyword(GetWindowTitle(hwnd));
+    }
+
+    private static bool IsShellWindow(IntPtr hwnd)
+    {
+        if (hwnd == GetShellWindow())
+        {
+            return true;
+        }
+
+        var className = GetWindowClassName(hwnd);
+        return ShellWindowClassNames.Contains(className, StringComparer.OrdinalIgnoreCase);
     }
 
     private static bool ContainsScreenshotKeyword(string value)
