@@ -11,6 +11,17 @@
     <Icon Id="SideDockIcon" SourceFile="src\SideDock\Assets\SideDock.ico" />
     <Property Id="ARPPRODUCTICON" Value="SideDockIcon" />
 
+    <CustomAction
+      Id="LaunchSideDockAfterInstall"
+      FileRef="SideDockExe"
+      ExeCommand=""
+      Execute="immediate"
+      Return="asyncNoWait" />
+
+    <InstallExecuteSequence>
+      <Custom Action="LaunchSideDockAfterInstall" After="InstallFinalize" Condition="NOT REMOVE" />
+    </InstallExecuteSequence>
+
     <Feature Id="MainFeature" Title="SideDock" Level="1">
       <ComponentGroupRef Id="SideDockComponents" />
     </Feature>
