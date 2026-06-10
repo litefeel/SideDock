@@ -70,7 +70,7 @@
                         <Border x:Name="ButtonChrome"
                                 Background="{TemplateBinding Background}"
                                 BorderBrush="{TemplateBinding BorderBrush}"
-                                BorderThickness="0"
+                                BorderThickness="1"
                                 CornerRadius="6">
                             <ContentPresenter HorizontalAlignment="Center"
                                               VerticalAlignment="Center" />
@@ -78,9 +78,11 @@
                         <ControlTemplate.Triggers>
                             <Trigger Property="IsMouseOver" Value="True">
                                 <Setter TargetName="ButtonChrome" Property="Background" Value="{DynamicResource ToolItemHoverBackground}" />
+                                <Setter TargetName="ButtonChrome" Property="BorderBrush" Value="{DynamicResource ToolItemHoverBorder}" />
                             </Trigger>
                             <Trigger Property="IsPressed" Value="True">
-                                <Setter TargetName="ButtonChrome" Property="Background" Value="{DynamicResource ToolItemHoverBackground}" />
+                                <Setter TargetName="ButtonChrome" Property="Background" Value="{DynamicResource ToolItemSelectedHoverBackground}" />
+                                <Setter TargetName="ButtonChrome" Property="BorderBrush" Value="{DynamicResource ToolItemHoverBorder}" />
                             </Trigger>
                         </ControlTemplate.Triggers>
                     </ControlTemplate>
@@ -116,6 +118,14 @@
                                 <Setter TargetName="ButtonChrome" Property="Background" Value="{DynamicResource HeaderButtonCheckedBackground}" />
                                 <Setter TargetName="ButtonChrome" Property="BorderBrush" Value="{DynamicResource HeaderButtonCheckedBorder}" />
                             </Trigger>
+                            <MultiTrigger>
+                                <MultiTrigger.Conditions>
+                                    <Condition Property="IsChecked" Value="True" />
+                                    <Condition Property="IsMouseOver" Value="True" />
+                                </MultiTrigger.Conditions>
+                                <Setter TargetName="ButtonChrome" Property="Background" Value="{DynamicResource HeaderButtonCheckedHoverBackground}" />
+                                <Setter TargetName="ButtonChrome" Property="BorderBrush" Value="{DynamicResource HeaderButtonCheckedBorder}" />
+                            </MultiTrigger>
                         </ControlTemplate.Triggers>
                     </ControlTemplate>
                 </Setter.Value>
@@ -190,17 +200,29 @@
                                             <Border x:Name="ItemBorder"
                                                     Height="48"
                                                     CornerRadius="6"
-                                                    Background="{TemplateBinding Background}">
+                                                    Background="{TemplateBinding Background}"
+                                                    BorderBrush="Transparent"
+                                                    BorderThickness="1">
                                                 <ContentPresenter HorizontalAlignment="Center"
                                                                   VerticalAlignment="Center" />
                                             </Border>
                                             <ControlTemplate.Triggers>
                                                 <Trigger Property="IsMouseOver" Value="True">
                                                     <Setter TargetName="ItemBorder" Property="Background" Value="{DynamicResource ToolItemHoverBackground}" />
+                                                    <Setter TargetName="ItemBorder" Property="BorderBrush" Value="{DynamicResource ToolItemHoverBorder}" />
                                                 </Trigger>
                                                 <Trigger Property="IsSelected" Value="True">
                                                     <Setter TargetName="ItemBorder" Property="Background" Value="{DynamicResource ToolItemSelectedBackground}" />
+                                                    <Setter TargetName="ItemBorder" Property="BorderBrush" Value="{DynamicResource HeaderButtonCheckedBorder}" />
                                                 </Trigger>
+                                                <MultiTrigger>
+                                                    <MultiTrigger.Conditions>
+                                                        <Condition Property="IsSelected" Value="True" />
+                                                        <Condition Property="IsMouseOver" Value="True" />
+                                                    </MultiTrigger.Conditions>
+                                                    <Setter TargetName="ItemBorder" Property="Background" Value="{DynamicResource ToolItemSelectedHoverBackground}" />
+                                                    <Setter TargetName="ItemBorder" Property="BorderBrush" Value="{DynamicResource HeaderButtonCheckedBorder}" />
+                                                </MultiTrigger>
                                             </ControlTemplate.Triggers>
                                         </ControlTemplate>
                                     </Setter.Value>

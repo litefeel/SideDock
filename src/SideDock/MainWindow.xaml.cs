@@ -816,15 +816,18 @@ public partial class MainWindow : Window
         if (useLightTheme)
         {
             SetThemeBrush("HeaderButtonForeground", Color.FromRgb(33, 38, 48));
-            SetThemeBrush("HeaderButtonHoverBackground", Color.FromRgb(232, 237, 245));
-            SetThemeBrush("HeaderButtonHoverBorder", Color.FromRgb(202, 211, 224));
+            SetThemeBrush("HeaderButtonHoverBackground", Color.FromRgb(220, 228, 240));
+            SetThemeBrush("HeaderButtonHoverBorder", Color.FromRgb(164, 177, 198));
             SetThemeBrush("HeaderButtonCheckedBackground", Color.FromRgb(44, 125, 250));
+            SetThemeBrush("HeaderButtonCheckedHoverBackground", Color.FromRgb(65, 142, 255));
             SetThemeBrush("HeaderButtonCheckedBorder", Color.FromRgb(37, 99, 235));
             SetThemeBrush("RailBackground", Color.FromArgb(236, 245, 247, 251));
             SetThemeBrush("RailBorderBrush", Color.FromArgb(220, 202, 211, 224));
             SetThemeBrush("ToolListForeground", Color.FromRgb(33, 38, 48));
-            SetThemeBrush("ToolItemHoverBackground", Color.FromArgb(180, 226, 232, 240));
+            SetThemeBrush("ToolItemHoverBackground", Color.FromRgb(220, 228, 240));
+            SetThemeBrush("ToolItemHoverBorder", Color.FromRgb(164, 177, 198));
             SetThemeBrush("ToolItemSelectedBackground", Color.FromRgb(44, 125, 250));
+            SetThemeBrush("ToolItemSelectedHoverBackground", Color.FromRgb(65, 142, 255));
             SetThemeBrush("DefaultIconBackground", Color.FromRgb(230, 235, 243));
             SetThemeBrush("DefaultIconForeground", Color.FromRgb(61, 70, 86));
             SetThemeBrush("ContentBackground", Color.FromRgb(250, 251, 253));
@@ -840,12 +843,15 @@ public partial class MainWindow : Window
         SetThemeBrush("HeaderButtonHoverBackground", Color.FromRgb(35, 42, 54));
         SetThemeBrush("HeaderButtonHoverBorder", Color.FromRgb(54, 65, 83));
         SetThemeBrush("HeaderButtonCheckedBackground", Color.FromRgb(44, 125, 250));
+        SetThemeBrush("HeaderButtonCheckedHoverBackground", Color.FromRgb(73, 148, 255));
         SetThemeBrush("HeaderButtonCheckedBorder", Color.FromRgb(74, 145, 255));
         SetThemeBrush("RailBackground", Color.FromArgb(51, 255, 255, 255));
         SetThemeBrush("RailBorderBrush", Color.FromArgb(85, 255, 255, 255));
         SetThemeBrush("ToolListForeground", Color.FromRgb(232, 237, 245));
-        SetThemeBrush("ToolItemHoverBackground", Color.FromArgb(51, 255, 255, 255));
+        SetThemeBrush("ToolItemHoverBackground", Color.FromArgb(96, 255, 255, 255));
+        SetThemeBrush("ToolItemHoverBorder", Color.FromArgb(140, 255, 255, 255));
         SetThemeBrush("ToolItemSelectedBackground", Color.FromRgb(44, 125, 250));
+        SetThemeBrush("ToolItemSelectedHoverBackground", Color.FromRgb(73, 148, 255));
         SetThemeBrush("DefaultIconBackground", Color.FromRgb(34, 42, 54));
         SetThemeBrush("DefaultIconForeground", Color.FromRgb(216, 222, 233));
         SetThemeBrush("ContentBackground", Color.FromRgb(11, 13, 17));
