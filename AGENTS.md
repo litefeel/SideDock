@@ -67,6 +67,16 @@ Expected installer outputs are written under `artifacts\installer`.
 - Update `README.md` when user-facing behavior, requirements, installer behavior, or release steps change.
 - Do not commit generated build output from `artifacts`, `.dotnet_home`, `.nuget`, `.codex-build`, `.buildverify`, `bin`, or `obj`.
 
+## AI Change Safety
+
+Before editing `src/SideDock/MainWindow.xaml`, `src/SideDock/MainWindow.xaml.cs`, or `src/SideDock/AppBarManager.cs`, inspect recent history for those files and preserve documented appbar behavior unless the user explicitly asks to change it:
+
+```powershell
+git log --stat -- src\SideDock\MainWindow.xaml src\SideDock\MainWindow.xaml.cs src\SideDock\AppBarManager.cs
+```
+
+For changes touching appbar behavior, collapsed or expanded layout, fullscreen hiding, WebView lifecycle, dock side, pinning, resizing, settings, or installer/release behavior, review `docs/REGRESSION.md` before editing and report which relevant regression cases were validated before finishing.
+
 ## Validation
 
 For code changes, run at least:
