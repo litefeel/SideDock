@@ -16,6 +16,14 @@ $env:NUGET_PACKAGES = "$PWD\.nuget\packages"
 dotnet run --project src\SideDock\SideDock.csproj
 ```
 
+## Test
+
+```powershell
+$env:DOTNET_CLI_HOME = "$PWD\.dotnet_home"
+$env:NUGET_PACKAGES = "$PWD\.nuget\packages"
+dotnet test tests\SideDock.Tests\SideDock.Tests.csproj --configuration Release
+```
+
 ## Build MSI Installer
 
 Build the installer:

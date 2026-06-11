@@ -28,7 +28,7 @@ dotnet build src\SideDock\SideDock.csproj --configuration Release --no-restore
 Run tests:
 
 ```powershell
-dotnet run --project tests\SideDock.Tests\SideDock.Tests.csproj --configuration Release
+dotnet test tests\SideDock.Tests\SideDock.Tests.csproj --configuration Release
 ```
 
 Run:
