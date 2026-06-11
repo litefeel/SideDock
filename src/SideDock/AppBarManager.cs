@@ -197,12 +197,4 @@ internal sealed class AppBarManager
         public uint dwFlags;
     }
 
-    [StructLayout(LayoutKind.Sequential)]
-    private struct NativeRect
-    {
-        public int Left;
-        public int Top;
-        public int Right;
-        public int Bottom;
-    }
 }

@@ -35,7 +35,6 @@ public partial class MainWindow : Window
     private const int MonitorDefaultToNearest = 0x00000002;
     private const int GaRoot = 2;
     private const int DwmwaExtendedFrameBounds = 9;
-    private const int FullscreenEdgeTolerancePixels = 2;
     private const int MaxWindowTextLength = 512;
     private const string ProjectHomeUrl = "https://github.com/litefeel/SideDock";
     private const string RunRegistryKeyPath = @"Software\Microsoft\Windows\CurrentVersion\Run";
@@ -50,37 +49,6 @@ public partial class MainWindow : Window
     {
         PropertyNameCaseInsensitive = true
     };
-
-    private static readonly string[] ScreenshotProcessNames =
-    [
-        "FSCapture",
-        "Greenshot",
-        "Lightshot",
-        "PicPick",
-        "ScreenClippingHost",
-        "ShareX",
-        "Snipaste",
-        "SnippingTool"
-    ];
-
-    private static readonly string[] ScreenshotWindowKeywords =
-    [
-        "capture",
-        "screen clipping",
-        "screenshot",
-        "screenclip",
-        "snip",
-        "\u622A\u56FE",
-        "\u622A\u5C4F"
-    ];
-
-    private static readonly string[] ShellWindowClassNames =
-    [
-        "Progman",
-        "WorkerW",
-        "Shell_TrayWnd",
-        "Shell_SecondaryTrayWnd"
-    ];
 
     private const string ExternalBlankLinkMessageType = "sideDock.openExternalBlankLink";
     private const string ExternalBlankLinkScript = """
@@ -1264,9 +1232,10 @@ public partial class MainWindow : Window
 
     private void UpdatePendingResizeWidth(double screenXDips)
     {
-        var requestedWidth = GetDockSide() == AppDockSide.Left
-            ? screenXDips - _resizeAnchorEdge
-            : _resizeAnchorEdge - screenXDips;
+        var requestedWidth = DockLayoutCalculator.GetRequestedResizeWidth(
+            GetDockSide(),
+            screenXDips,
+            _resizeAnchorEdge);
         _pendingResizeWidth = ClampExpandedWidth(requestedWidth);
         UpdateResizePreview();
     }
@@ -1361,17 +1330,17 @@ public partial class MainWindow : Window
 
         var screenBounds = GetPrimaryScreenBoundsDips();
         var gripWidth = GetResizeGripWidth();
-        var previewLeft = GetDockSide() == AppDockSide.Left
-            ? Math.Round(_resizeContentFixedEdge - screenBounds.Left)
-            : Math.Round(_resizeAnchorEdge - _pendingResizeWidth + gripWidth - screenBounds.Left);
-        var previewRight = GetDockSide() == AppDockSide.Left
-            ? Math.Round(_resizeAnchorEdge + _pendingResizeWidth - gripWidth - screenBounds.Left)
-            : Math.Round(_resizeContentFixedEdge - screenBounds.Left);
-        var contentPreviewWidth = Math.Max(1, previewRight - previewLeft);
+        var previewLayout = DockLayoutCalculator.GetResizePreviewLayout(
+            GetDockSide(),
+            screenBounds.Left,
+            _resizeContentFixedEdge,
+            _resizeAnchorEdge,
+            _pendingResizeWidth,
+            gripWidth);
 
-        Canvas.SetLeft(_resizePreviewPanel, previewLeft);
+        Canvas.SetLeft(_resizePreviewPanel, previewLayout.Left);
         Canvas.SetTop(_resizePreviewPanel, 0);
-        _resizePreviewPanel.Width = contentPreviewWidth;
+        _resizePreviewPanel.Width = previewLayout.Width;
         _resizePreviewPanel.Height = screenBounds.Height;
 
         _resizePreviewWindow.Left = screenBounds.Left;
@@ -1847,20 +1816,22 @@ public partial class MainWindow : Window
 
     private double GetReservedWidth(double windowWidth)
     {
-        return _isExpanded && _isPinned
-            ? windowWidth
-            : _settings.CollapsedWidth;
+        return DockLayoutCalculator.GetReservedWidth(
+            _isExpanded,
+            _isPinned,
+            windowWidth,
+            _settings.CollapsedWidth);
     }
 
     private double ClampExpandedWidth(double width)
     {
-        return Math.Clamp(width, _settings.MinExpandedWidth, GetMaxExpandedWidth());
+        return DockLayoutCalculator.ClampExpandedWidth(width, _settings.MinExpandedWidth, GetMaxExpandedWidth());
     }
 
     private double GetMaxExpandedWidth()
     {
         var screenWidth = SystemParameters.PrimaryScreenWidth;
-        return Math.Max(_settings.MinExpandedWidth, screenWidth - _settings.CollapsedWidth);
+        return DockLayoutCalculator.GetMaxExpandedWidth(_settings.MinExpandedWidth, screenWidth, _settings.CollapsedWidth);
     }
 
     private void ApplyTopmostState()
@@ -1906,7 +1877,7 @@ public partial class MainWindow : Window
         };
 
         return GetMonitorInfo(foregroundMonitor, ref monitorInfo)
-            && CoversMonitor(windowRect, monitorInfo.rcMonitor)
+            && FullscreenWindowRules.CoversMonitor(windowRect, monitorInfo.rcMonitor)
             && !IsScreenshotCaptureWindow(foregroundWindow);
     }
 
@@ -1917,7 +1888,7 @@ public partial class MainWindow : Window
             try
             {
                 using var process = Process.GetProcessById((int)processId);
-                if (ScreenshotProcessNames.Contains(process.ProcessName, StringComparer.OrdinalIgnoreCase))
+                if (FullscreenWindowRules.IsScreenshotProcessName(process.ProcessName))
                 {
                     return true;
                 }
@@ -1930,8 +1901,8 @@ public partial class MainWindow : Window
             }
         }
 
-        return ContainsScreenshotKeyword(GetWindowClassName(hwnd))
-            || ContainsScreenshotKeyword(GetWindowTitle(hwnd));
+        return FullscreenWindowRules.ContainsScreenshotKeyword(GetWindowClassName(hwnd))
+            || FullscreenWindowRules.ContainsScreenshotKeyword(GetWindowTitle(hwnd));
     }
 
     private static bool IsShellWindow(IntPtr hwnd)
@@ -1942,13 +1913,7 @@ public partial class MainWindow : Window
         }
 
         var className = GetWindowClassName(hwnd);
-        return ShellWindowClassNames.Contains(className, StringComparer.OrdinalIgnoreCase);
-    }
-
-    private static bool ContainsScreenshotKeyword(string value)
-    {
-        return !string.IsNullOrWhiteSpace(value)
-            && ScreenshotWindowKeywords.Any(keyword => value.Contains(keyword, StringComparison.OrdinalIgnoreCase));
+        return FullscreenWindowRules.IsShellWindowClassName(className);
     }
 
     private static string GetWindowClassName(IntPtr hwnd)
@@ -1988,14 +1953,6 @@ public partial class MainWindow : Window
         }
 
         return GetWindowRect(hwnd, out rect);
-    }
-
-    private static bool CoversMonitor(NativeRect windowRect, NativeRect monitorRect)
-    {
-        return windowRect.Left <= monitorRect.Left + FullscreenEdgeTolerancePixels
-            && windowRect.Top <= monitorRect.Top + FullscreenEdgeTolerancePixels
-            && windowRect.Right >= monitorRect.Right - FullscreenEdgeTolerancePixels
-            && windowRect.Bottom >= monitorRect.Bottom - FullscreenEdgeTolerancePixels;
     }
 
     private void OpenExternal(string? url)
@@ -2124,15 +2081,6 @@ public partial class MainWindow : Window
         public NativeRect rcMonitor;
         public NativeRect rcWork;
         public uint dwFlags;
-    }
-
-    [StructLayout(LayoutKind.Sequential)]
-    private struct NativeRect
-    {
-        public int Left;
-        public int Top;
-        public int Right;
-        public int Bottom;
     }
 
     private sealed record IconCandidate(string Href, string Rel, string Sizes);

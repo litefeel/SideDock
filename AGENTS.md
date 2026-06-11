@@ -32,6 +32,12 @@ dotnet restore src\SideDock\SideDock.csproj
 dotnet build src\SideDock\SideDock.csproj --configuration Release --no-restore
 ```
 
+Run tests:
+
+```powershell
+dotnet run --project tests\SideDock.Tests\SideDock.Tests.csproj --configuration Release
+```
+
 Run:
 
 ```powershell
@@ -83,6 +89,12 @@ For code changes, run at least:
 
 ```powershell
 dotnet build src\SideDock\SideDock.csproj --configuration Release
+```
+
+If the change touches logic covered by tests, also run:
+
+```powershell
+dotnet run --project tests\SideDock.Tests\SideDock.Tests.csproj --configuration Release
 ```
 
 For installer or release workflow changes, also run:
