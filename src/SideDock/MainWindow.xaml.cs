@@ -796,12 +796,8 @@ public partial class MainWindow : Window
         var railWidth = _settings.CollapsedWidth;
         var resizeWidth = _isExpanded ? 18 : 0;
 
-        ExpandedRailPanel.Visibility = _isExpanded ? Visibility.Visible : Visibility.Collapsed;
-        CollapsedIconButton.Visibility = _isExpanded ? Visibility.Collapsed : Visibility.Visible;
-        RailBorder.CornerRadius = _isExpanded ? new CornerRadius(0) : new CornerRadius(10);
-        RailBorder.BorderThickness = _isExpanded
-            ? RailBorder.BorderThickness
-            : new Thickness(1);
+        ExpandedRailPanel.Visibility = Visibility.Visible;
+        RailBorder.CornerRadius = new CornerRadius(0);
 
         if (dockSide == AppDockSide.Left)
         {
@@ -810,10 +806,7 @@ public partial class MainWindow : Window
             Grid.SetColumn(RailBorder, 0);
             Grid.SetColumn(ContentPanel, 1);
             Grid.SetColumn(ResizeGrip, 2);
-            if (_isExpanded)
-            {
-                RailBorder.BorderThickness = new Thickness(0, 0, 1, 0);
-            }
+            RailBorder.BorderThickness = new Thickness(0, 0, 1, 0);
         }
         else
         {
@@ -822,10 +815,7 @@ public partial class MainWindow : Window
             Grid.SetColumn(ResizeGrip, 0);
             Grid.SetColumn(ContentPanel, 1);
             Grid.SetColumn(RailBorder, 2);
-            if (_isExpanded)
-            {
-                RailBorder.BorderThickness = new Thickness(1, 0, 0, 0);
-            }
+            RailBorder.BorderThickness = new Thickness(1, 0, 0, 0);
         }
     }
 
@@ -1082,11 +1072,6 @@ public partial class MainWindow : Window
     private void OnOpenExternalClick(object sender, RoutedEventArgs e)
     {
         OpenExternal(GetCurrentUrl());
-    }
-
-    private void OnCollapsedIconClick(object sender, RoutedEventArgs e)
-    {
-        Expand();
     }
 
     private void OnHideClick(object sender, RoutedEventArgs e)
@@ -1579,9 +1564,7 @@ public partial class MainWindow : Window
 
     private double GetDockWindowHeight()
     {
-        return _isExpanded
-            ? SystemParameters.PrimaryScreenHeight
-            : _settings.CollapsedWidth;
+        return SystemParameters.PrimaryScreenHeight;
     }
 
     private Rect GetWindowScreenRect()

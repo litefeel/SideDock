@@ -232,8 +232,10 @@
                              Margin="4,10,4,4">
                         <ListBox.ItemContainerStyle>
                             <Style TargetType="ListBoxItem">
+                                <Setter Property="Width" Value="40" />
+                                <Setter Property="Height" Value="40" />
                                 <Setter Property="HorizontalContentAlignment" Value="Stretch" />
-                                <Setter Property="Margin" Value="0,4" />
+                                <Setter Property="Margin" Value="0,0,0,10" />
                                 <Setter Property="Padding" Value="0" />
                                 <Setter Property="Background" Value="Transparent" />
                                 <Setter Property="BorderThickness" Value="0" />
@@ -241,7 +243,8 @@
                                     <Setter.Value>
                                         <ControlTemplate TargetType="ListBoxItem">
                                             <Border x:Name="ItemBorder"
-                                                    Height="48"
+                                                    Width="40"
+                                                    Height="40"
                                                     CornerRadius="6"
                                                     Background="{TemplateBinding Background}"
                                                     BorderBrush="Transparent"
@@ -277,19 +280,6 @@
                         </ListBox.ItemTemplate>
                     </ListBox>
                 </DockPanel>
-
-                <Button x:Name="CollapsedIconButton"
-                        Style="{StaticResource RailIconButtonStyle}"
-                        Width="40"
-                        Height="40"
-                        Margin="4"
-                        HorizontalAlignment="Center"
-                        VerticalAlignment="Center"
-                        Content="{Binding SelectedItem, ElementName=ToolList}"
-                        ContentTemplate="{StaticResource ToolIconTemplate}"
-                        ToolTip="{Binding SelectedItem.Tool.Title, ElementName=ToolList}"
-                        Visibility="Collapsed"
-                        Click="OnCollapsedIconClick" />
                 </Grid>
             </Border>
 
