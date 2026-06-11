@@ -16,13 +16,6 @@ The installer is built with WiX from `installer/SideDock.wxs`. Release packaging
 - Microsoft Edge WebView2 Runtime on machines running the app.
 - The `no-runtime` MSI requires .NET 10 to already be installed on the target machine.
 
-When running CLI commands locally, keep project-local caches to avoid writing outside the workspace:
-
-```powershell
-$env:DOTNET_CLI_HOME = "$PWD\.dotnet_home"
-$env:NUGET_PACKAGES = "$PWD\.nuget\packages"
-```
-
 ## Common Commands
 
 Restore and build:
