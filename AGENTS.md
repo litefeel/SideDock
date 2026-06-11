@@ -106,6 +106,11 @@ Use the actual project version when validating a release candidate.
 - Do not combine unrelated features, fixes, installer changes, or documentation updates into a single commit.
 - If a request contains multiple independent features, split the implementation into separate commits.
 - Keep commit messages specific to the feature or fix being committed.
+- For multi-step work, identify the intended commit slices before editing and complete one slice at a time.
+- Keep mechanical refactors separate from behavior changes unless the refactor is only a small local part of that behavior change.
+- Do not stage unrelated files together. Before each commit, review `git status --short` and the staged diff to confirm the commit contains only one coherent change.
+- If validation for one slice fails, fix that slice before starting another slice.
+- Do not include version bumps in feature, fix, refactor, or documentation commits.
 
 ## Release Policy
 
