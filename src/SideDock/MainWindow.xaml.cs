@@ -29,10 +29,6 @@ public partial class MainWindow : Window
     private const int AbnFullscreenApp = 0x00000002;
     private const int DisplayIconSize = 24;
     private const int PreferredIconFrameSize = 48;
-    private const int SystemMetricCxScreen = 0;
-    private const int SystemMetricCyScreen = 1;
-    private const int MonitorDefaultToNull = 0x00000000;
-    private const int MonitorDefaultToNearest = 0x00000002;
     private const int GaRoot = 2;
     private const int DwmwaExtendedFrameBounds = 9;
     private const int MaxWindowTextLength = 512;
@@ -89,7 +85,7 @@ public partial class MainWindow : Window
     private ToolItem? _currentItem;
     private CoreWebView2Environment? _webViewEnvironment;
     private double _expandedWidth;
-    private bool _isExpanded = true;
+    private bool _isExpanded;
     private bool _isPinned;
     private bool _isResizing;
     private double _resizeAnchorEdge;
@@ -111,9 +107,13 @@ public partial class MainWindow : Window
 
         ApplyTheme();
         ApplyStartupSetting();
-        ApplyDockSideLayout();
         _expandedWidth = ClampExpandedWidth(_settings.DefaultExpandedWidth);
-        Width = _expandedWidth;
+        ContentPanel.Visibility = Visibility.Collapsed;
+        ResizeGrip.Visibility = Visibility.Collapsed;
+        ContentColumn.Width = new GridLength(0);
+        ApplyDockSideLayout();
+        Width = GetCurrentDockWidth();
+        Height = GetDockWindowHeight();
         MinWidth = _settings.CollapsedWidth;
         MinHeight = _settings.CollapsedWidth;
         Topmost = true;
@@ -132,8 +132,7 @@ public partial class MainWindow : Window
 
     private async void OnLoaded(object sender, RoutedEventArgs e)
     {
-        DockToConfiguredEdge(_expandedWidth);
-        Collapse();
+        DockToConfiguredEdge(GetCurrentDockWidth());
         _cursorTimer.Start();
         await InitializeWebViewsAsync();
     }
@@ -145,7 +144,8 @@ public partial class MainWindow : Window
         _hwndSource?.AddHook(WndProc);
 
         _appBarManager = new AppBarManager(handle);
-        _appBarManager.Register(GetReservedWidth(Width), Width, GetDockWindowHeight(), GetDockSide());
+        var currentWidth = GetCurrentDockWidth();
+        _appBarManager.Register(GetReservedWidth(currentWidth), currentWidth, GetDockWindowHeight(), GetDockSide());
     }
 
     private void OnClosing(object? sender, CancelEventArgs e)
@@ -729,7 +729,7 @@ public partial class MainWindow : Window
         _settings.DockSide = AppSettings.NormalizeDockSide(dockSide).ToString();
         AppSettings.Save(_settings);
         ApplyDockSideLayout();
-        DockToConfiguredEdge(_isExpanded ? _expandedWidth : _settings.CollapsedWidth);
+        DockToConfiguredEdge(GetCurrentDockWidth());
         UpdateSettingsMenuChecks();
     }
 
@@ -1076,7 +1076,7 @@ public partial class MainWindow : Window
         }
 
         ApplyTopmostState();
-        DockToConfiguredEdge(_isExpanded ? _expandedWidth : _settings.CollapsedWidth);
+        DockToConfiguredEdge(GetCurrentDockWidth());
     }
 
     private void OnCursorTimerTick(object? sender, EventArgs e)
@@ -1147,7 +1147,7 @@ public partial class MainWindow : Window
         Show();
         ApplyTopmostState();
 
-        var currentWidth = _isExpanded ? _expandedWidth : _settings.CollapsedWidth;
+        var currentWidth = GetCurrentDockWidth();
         _appBarManager?.Register(GetReservedWidth(currentWidth), currentWidth, GetDockWindowHeight(), GetDockSide());
         DockToConfiguredEdge(currentWidth);
     }
@@ -1166,7 +1166,7 @@ public partial class MainWindow : Window
         ResizeGrip.Visibility = Visibility.Visible;
         ApplyDockSideLayout();
         ApplyTopmostState();
-        DockToConfiguredEdge(_expandedWidth);
+        DockToConfiguredEdge(GetCurrentDockWidth());
     }
 
     private void Collapse(bool force = false)
@@ -1182,7 +1182,7 @@ public partial class MainWindow : Window
         ContentColumn.Width = new GridLength(0);
         ApplyDockSideLayout();
         ApplyTopmostState();
-        DockToConfiguredEdge(_settings.CollapsedWidth);
+        DockToConfiguredEdge(GetCurrentDockWidth());
     }
 
     private void OnResizeGripMouseLeftButtonDown(object sender, MouseButtonEventArgs e)
@@ -1258,7 +1258,7 @@ public partial class MainWindow : Window
             ResizeGrip.ReleaseMouseCapture();
         }
 
-        DockToConfiguredEdge(_expandedWidth);
+        DockToConfiguredEdge(GetCurrentDockWidth());
     }
 
     private void ShowResizePreview()
@@ -1278,12 +1278,14 @@ public partial class MainWindow : Window
         };
         _resizePreviewCanvas.Children.Add(_resizePreviewPanel);
 
+        var screenBounds = GetCurrentMonitorBoundsDips();
+
         _resizePreviewWindow ??= new Window
         {
-            Left = 0,
-            Width = SystemParameters.PrimaryScreenWidth,
-            Height = SystemParameters.PrimaryScreenHeight,
-            Top = 0,
+            Left = screenBounds.Left,
+            Width = screenBounds.Width,
+            Height = screenBounds.Height,
+            Top = screenBounds.Top,
             WindowStyle = WindowStyle.None,
             ResizeMode = ResizeMode.NoResize,
             AllowsTransparency = true,
@@ -1328,7 +1330,7 @@ public partial class MainWindow : Window
             return;
         }
 
-        var screenBounds = GetPrimaryScreenBoundsDips();
+        var screenBounds = GetCurrentMonitorBoundsDips();
         var gripWidth = GetResizeGripWidth();
         var previewLayout = DockLayoutCalculator.GetResizePreviewLayout(
             GetDockSide(),
@@ -1486,19 +1488,9 @@ public partial class MainWindow : Window
             : 18;
     }
 
-    private Rect GetPrimaryScreenBoundsDips()
+    private Rect GetCurrentMonitorBoundsDips()
     {
-        var source = PresentationSource.FromVisual(this);
-        if (source?.CompositionTarget is null)
-        {
-            return new Rect(0, 0, SystemParameters.PrimaryScreenWidth, SystemParameters.PrimaryScreenHeight);
-        }
-
-        var topLeft = source.CompositionTarget.TransformFromDevice.Transform(new Point(0, 0));
-        var bottomRight = source.CompositionTarget.TransformFromDevice.Transform(
-            new Point(GetSystemMetrics(SystemMetricCxScreen), GetSystemMetrics(SystemMetricCyScreen)));
-
-        return new Rect(topLeft, bottomRight);
+        return GetCurrentMonitorLayout().MonitorDips;
     }
 
     private void DockToConfiguredEdge(double width)
@@ -1506,7 +1498,8 @@ public partial class MainWindow : Window
         var clampedWidth = _isExpanded
             ? ClampExpandedWidth(width)
             : _settings.CollapsedWidth;
-        var windowHeight = GetDockWindowHeight();
+        var layout = GetCurrentMonitorLayout();
+        var windowHeight = GetDockWindowHeight(layout);
         Width = clampedWidth;
         Height = windowHeight;
 
@@ -1521,19 +1514,25 @@ public partial class MainWindow : Window
             return;
         }
 
-        var workArea = SystemParameters.WorkArea;
-        Left = GetDockSide() == AppDockSide.Left
-            ? workArea.Left
-            : workArea.Right - clampedWidth;
-        Top = _isExpanded
-            ? workArea.Top
-            : workArea.Top + Math.Max(0, (workArea.Height - windowHeight) / 2);
-        Height = _isExpanded ? workArea.Height : windowHeight;
+        var monitorBounds = layout.MonitorDips;
+        Left = DockLayoutCalculator.GetDockLeft(GetDockSide(), monitorBounds.Left, monitorBounds.Right, clampedWidth);
+        Top = monitorBounds.Top + Math.Max(0, (monitorBounds.Height - windowHeight) / 2);
+        Height = windowHeight;
     }
 
     private double GetDockWindowHeight()
     {
-        return SystemParameters.PrimaryScreenHeight;
+        return GetDockWindowHeight(GetCurrentMonitorLayout());
+    }
+
+    private static double GetDockWindowHeight(MonitorLayout layout)
+    {
+        return layout.MonitorHeightDips;
+    }
+
+    private MonitorLayout GetCurrentMonitorLayout()
+    {
+        return MonitorLayoutProvider.FromWindow(_hwndSource?.Handle ?? nint.Zero);
     }
 
     private Rect GetWindowScreenRect()
@@ -1823,6 +1822,11 @@ public partial class MainWindow : Window
             _settings.CollapsedWidth);
     }
 
+    private double GetCurrentDockWidth()
+    {
+        return DockLayoutCalculator.GetCurrentWindowWidth(_isExpanded, _expandedWidth, _settings.CollapsedWidth);
+    }
+
     private double ClampExpandedWidth(double width)
     {
         return DockLayoutCalculator.ClampExpandedWidth(width, _settings.MinExpandedWidth, GetMaxExpandedWidth());
@@ -1830,7 +1834,7 @@ public partial class MainWindow : Window
 
     private double GetMaxExpandedWidth()
     {
-        var screenWidth = SystemParameters.PrimaryScreenWidth;
+        var screenWidth = GetCurrentMonitorLayout().MonitorWidthDips;
         return DockLayoutCalculator.GetMaxExpandedWidth(_settings.MinExpandedWidth, screenWidth, _settings.CollapsedWidth);
     }
 
@@ -1857,8 +1861,8 @@ public partial class MainWindow : Window
             return false;
         }
 
-        var sideDockMonitor = MonitorFromWindow(ownerHandle, MonitorDefaultToNearest);
-        var foregroundMonitor = MonitorFromWindow(foregroundWindow, MonitorDefaultToNull);
+        var sideDockMonitor = MonitorLayoutProvider.GetMonitorFromWindow(ownerHandle, MonitorLayoutProvider.MonitorDefaultToNearest);
+        var foregroundMonitor = MonitorLayoutProvider.GetMonitorFromWindow(foregroundWindow, MonitorLayoutProvider.MonitorDefaultToNull);
         if (sideDockMonitor == IntPtr.Zero
             || foregroundMonitor == IntPtr.Zero
             || sideDockMonitor != foregroundMonitor)
@@ -1871,13 +1875,8 @@ public partial class MainWindow : Window
             return false;
         }
 
-        var monitorInfo = new MonitorInfo
-        {
-            cbSize = Marshal.SizeOf<MonitorInfo>()
-        };
-
-        return GetMonitorInfo(foregroundMonitor, ref monitorInfo)
-            && FullscreenWindowRules.CoversMonitor(windowRect, monitorInfo.rcMonitor)
+        return MonitorLayoutProvider.TryGetFromMonitor(foregroundMonitor, ownerHandle, out var monitorLayout)
+            && FullscreenWindowRules.CoversMonitor(windowRect, monitorLayout.MonitorPixels)
             && !IsScreenshotCaptureWindow(foregroundWindow);
     }
 
@@ -2006,7 +2005,7 @@ public partial class MainWindow : Window
             {
                 ApplyTheme();
                 ApplyBrowserThemes();
-                DockToConfiguredEdge(_isExpanded ? _expandedWidth : _settings.CollapsedWidth);
+                DockToConfiguredEdge(GetCurrentDockWidth());
             });
         }
 
@@ -2027,9 +2026,6 @@ public partial class MainWindow : Window
 
     [DllImport("user32.dll")]
     private static extern bool GetCursorPos(out NativePoint point);
-
-    [DllImport("user32.dll")]
-    private static extern int GetSystemMetrics(int nIndex);
 
     [DllImport("user32.dll")]
     private static extern IntPtr GetForegroundWindow();
@@ -2056,12 +2052,6 @@ public partial class MainWindow : Window
     private static extern int GetWindowText(IntPtr hWnd, StringBuilder lpString, int nMaxCount);
 
     [DllImport("user32.dll")]
-    private static extern IntPtr MonitorFromWindow(IntPtr hwnd, int dwFlags);
-
-    [DllImport("user32.dll")]
-    private static extern bool GetMonitorInfo(IntPtr hMonitor, ref MonitorInfo lpmi);
-
-    [DllImport("user32.dll")]
     private static extern bool GetWindowRect(IntPtr hWnd, out NativeRect lpRect);
 
     [DllImport("dwmapi.dll")]
@@ -2072,15 +2062,6 @@ public partial class MainWindow : Window
     {
         public readonly int X;
         public readonly int Y;
-    }
-
-    [StructLayout(LayoutKind.Sequential)]
-    private struct MonitorInfo
-    {
-        public int cbSize;
-        public NativeRect rcMonitor;
-        public NativeRect rcWork;
-        public uint dwFlags;
     }
 
     private sealed record IconCandidate(string Href, string Rel, string Sizes);

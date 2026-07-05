@@ -19,6 +19,18 @@ internal static class DockLayoutCalculator
             : collapsedWidth;
     }
 
+    public static double GetCurrentWindowWidth(bool isExpanded, double expandedWidth, double collapsedWidth)
+    {
+        return isExpanded ? expandedWidth : collapsedWidth;
+    }
+
+    public static double GetDockLeft(AppDockSide dockSide, double monitorLeft, double monitorRight, double windowWidth)
+    {
+        return dockSide == AppDockSide.Left
+            ? monitorLeft
+            : monitorRight - windowWidth;
+    }
+
     public static double GetRequestedResizeWidth(AppDockSide dockSide, double screenXDips, double resizeAnchorEdge)
     {
         return dockSide == AppDockSide.Left

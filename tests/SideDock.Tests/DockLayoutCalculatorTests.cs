@@ -33,6 +33,37 @@ public sealed class DockLayoutCalculatorTests
     }
 
     [Fact]
+    public void CurrentWindowWidthFollowsExpandedState()
+    {
+        Assert.Equal(48, DockLayoutCalculator.GetCurrentWindowWidth(isExpanded: false, expandedWidth: 430, collapsedWidth: 48));
+        Assert.Equal(430, DockLayoutCalculator.GetCurrentWindowWidth(isExpanded: true, expandedWidth: 430, collapsedWidth: 48));
+    }
+
+    [Fact]
+    public void DockLeftMatchesConfiguredEdge()
+    {
+        Assert.Equal(0, DockLayoutCalculator.GetDockLeft(AppDockSide.Left, monitorLeft: 0, monitorRight: 1920, windowWidth: 430));
+        Assert.Equal(1490, DockLayoutCalculator.GetDockLeft(AppDockSide.Right, monitorLeft: 0, monitorRight: 1920, windowWidth: 430));
+    }
+
+    [Theory]
+    [InlineData(120u)]
+    [InlineData(144u)]
+    public void RightDockStaysOnPhysicalRightEdgeAtScaledDpi(uint dpi)
+    {
+        var layout = new MonitorLayout(
+            new NativeRect(0, 0, 2560, 1440),
+            new NativeRect(0, 0, 2560, 1400),
+            dpi);
+        var monitorBounds = layout.MonitorDips;
+        var windowWidth = 48;
+
+        var left = DockLayoutCalculator.GetDockLeft(AppDockSide.Right, monitorBounds.Left, monitorBounds.Right, windowWidth);
+
+        Assert.Equal(2560, layout.DipsToPixels(left + windowWidth));
+    }
+
+    [Fact]
     public void ResizeWidthFollowsDockSideDirection()
     {
         Assert.Equal(200, DockLayoutCalculator.GetRequestedResizeWidth(AppDockSide.Left, screenXDips: 300, resizeAnchorEdge: 100));

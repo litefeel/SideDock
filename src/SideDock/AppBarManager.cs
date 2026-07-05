@@ -1,5 +1,4 @@
 using System.Runtime.InteropServices;
-using System.Windows;
 
 namespace SideDock;
 
@@ -13,7 +12,6 @@ internal sealed class AppBarManager
     private const int AbeRight = 2;
     private const int SwpNoActivate = 0x0010;
     private const int SwpNoZOrder = 0x0004;
-    private const int MonitorDefaultToNearest = 0x00000002;
 
     private readonly nint _hwnd;
     private readonly uint _callbackMessage;
@@ -57,10 +55,11 @@ internal sealed class AppBarManager
             return;
         }
 
-        var monitor = GetMonitorRect();
-        var reservedWidthPixels = Math.Max(1, DipsToPixels(reservedWidthDips));
-        var windowWidthPixels = Math.Max(reservedWidthPixels, DipsToPixels(windowWidthDips));
-        var requestedWindowHeightPixels = Math.Max(1, DipsToPixels(windowHeightDips));
+        var layout = MonitorLayoutProvider.FromWindow(_hwnd);
+        var monitor = layout.MonitorPixels;
+        var reservedWidthPixels = Math.Max(1, layout.DipsToPixels(reservedWidthDips));
+        var windowWidthPixels = Math.Max(reservedWidthPixels, layout.DipsToPixels(windowWidthDips));
+        var requestedWindowHeightPixels = Math.Max(1, layout.DipsToPixels(windowHeightDips));
 
         var data = CreateData();
         data.uEdge = (uint)(dockSide == AppDockSide.Left ? AbeLeft : AbeRight);
@@ -135,30 +134,6 @@ internal sealed class AppBarManager
         };
     }
 
-    private NativeRect GetMonitorRect()
-    {
-        var monitor = MonitorFromWindow(_hwnd, MonitorDefaultToNearest);
-        var info = new MonitorInfo
-        {
-            cbSize = Marshal.SizeOf<MonitorInfo>()
-        };
-
-        return GetMonitorInfo(monitor, ref info)
-            ? info.rcMonitor
-            : new NativeRect
-            {
-                Left = 0,
-                Top = 0,
-                Right = DipsToPixels(SystemParameters.PrimaryScreenWidth),
-                Bottom = DipsToPixels(SystemParameters.PrimaryScreenHeight)
-            };
-    }
-
-    private int DipsToPixels(double dips)
-    {
-        return (int)Math.Round(dips * GetDpiForWindow(_hwnd) / 96.0);
-    }
-
     [DllImport("shell32.dll", SetLastError = true)]
     private static extern nuint SHAppBarMessage(int dwMessage, ref AppBarData pData);
 
@@ -167,15 +142,6 @@ internal sealed class AppBarManager
 
     [DllImport("user32.dll")]
     private static extern bool SetWindowPos(nint hWnd, nint hWndInsertAfter, int x, int y, int cx, int cy, int uFlags);
-
-    [DllImport("user32.dll")]
-    private static extern nint MonitorFromWindow(nint hwnd, int dwFlags);
-
-    [DllImport("user32.dll")]
-    private static extern bool GetMonitorInfo(nint hMonitor, ref MonitorInfo lpmi);
-
-    [DllImport("user32.dll")]
-    private static extern uint GetDpiForWindow(nint hwnd);
 
     [StructLayout(LayoutKind.Sequential)]
     private struct AppBarData
@@ -186,15 +152,6 @@ internal sealed class AppBarManager
         public uint uEdge;
         public NativeRect rc;
         public nint lParam;
-    }
-
-    [StructLayout(LayoutKind.Sequential)]
-    private struct MonitorInfo
-    {
-        public int cbSize;
-        public NativeRect rcMonitor;
-        public NativeRect rcWork;
-        public uint dwFlags;
     }
 
 }
