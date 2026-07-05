@@ -68,6 +68,12 @@ Expected installer outputs are written under `artifacts\installer`.
 
 ## AI Change Safety
 
+### Agent Editing Policy
+
+- Do not modify code, project files, documentation, scripts, or configuration unless the user explicitly asks for a change.
+- For questions, reviews, analysis, or debugging requests, inspect and explain only. Ask for confirmation before editing.
+- When requirements are unclear or incomplete, ask the user for clarification before proceeding. Do not guess or assume intent.
+
 Before editing `src/SideDock/MainWindow.xaml`, `src/SideDock/MainWindow.xaml.cs`, or `src/SideDock/AppBarManager.cs`, inspect recent history for those files and preserve documented appbar behavior unless the user explicitly asks to change it:
 
 ```powershell
