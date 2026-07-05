@@ -80,7 +80,9 @@ Before editing `src/SideDock/MainWindow.xaml`, `src/SideDock/MainWindow.xaml.cs`
 git log --stat -- src\SideDock\MainWindow.xaml src\SideDock\MainWindow.xaml.cs src\SideDock\AppBarManager.cs
 ```
 
-For changes touching appbar behavior, collapsed or expanded layout, fullscreen hiding, WebView lifecycle, dock side, pinning, resizing, settings, or installer/release behavior, review `docs/REGRESSION.md` before editing and report which relevant regression cases were validated before finishing.
+For changes touching appbar behavior, collapsed or expanded layout, fullscreen hiding, WebView lifecycle, dock side, pinning, resizing, settings, display selection, DPI scaling, or installer/release behavior, review `docs/REGRESSION.md` before editing and report which relevant regression cases were validated before finishing.
+
+Layout, appbar, fullscreen, dock side, resizing, and window-positioning changes must explicitly consider multi-monitor setups and non-100% DPI scaling. Do not assume the primary display or 100% scaling unless the user explicitly scopes the change that way.
 
 ## Validation
 

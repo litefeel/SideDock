@@ -1,15 +1,26 @@
 # Regression Checklist
 
-Use this checklist before finishing changes that touch appbar behavior, collapsed or expanded layout, fullscreen hiding, WebView lifecycle, dock side, pinning, resizing, settings, installer behavior, or release workflow.
+Use this checklist before finishing changes that touch appbar behavior, collapsed or expanded layout, fullscreen hiding, WebView lifecycle, dock side, pinning, resizing, settings, display selection, DPI scaling, installer behavior, or release workflow.
 
 ## Appbar and Layout
 
 - Collapsed rail shows every configured site button and the settings button.
 - Collapsed rail uses the configured dock side and stays on the correct screen edge.
+- Collapsed and expanded windows use the intended monitor, not always the primary monitor.
+- Appbar reserved space is registered on the same monitor edge where SideDock is shown.
 - Clicking a site button expands the web panel.
 - Clicking outside site buttons does not unexpectedly expand the web panel.
 - The app remains topmost.
 - Missing favicons use the default icon and loaded favicons continue to display.
+
+## Multi-Monitor and DPI Scaling
+
+- Layout calculations work when SideDock is on a secondary monitor.
+- Layout calculations work when the secondary monitor is positioned left, right, above, or below the primary monitor.
+- Layout calculations work when Windows display scaling is not 100%, including at least 125% and 150% when feasible.
+- Appbar reserved pixel bounds and WPF DIP sizes are converted consistently for the active monitor DPI.
+- Moving between monitors with different DPI values or receiving a DPI/display change refreshes SideDock position, size, and reserved space.
+- Resize preview, resize grip math, expanded width limits, and fullscreen detection use the active monitor bounds rather than primary-screen assumptions.
 
 ## WebView Lifecycle
 
