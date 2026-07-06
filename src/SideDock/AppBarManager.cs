@@ -1,9 +1,11 @@
 using System.Runtime.InteropServices;
+using Microsoft.Extensions.Logging;
 
 namespace SideDock;
 
 internal sealed class AppBarManager
 {
+    private const int EdgeTolerancePixels = 1;
     private const int AbmNew = 0x00000000;
     private const int AbmRemove = 0x00000001;
     private const int AbmQueryPos = 0x00000002;
@@ -15,36 +17,45 @@ internal sealed class AppBarManager
 
     private readonly nint _hwnd;
     private readonly uint _callbackMessage;
+    private readonly ILogger<AppBarManager> _logger;
     private bool _isRegistered;
     private double _reservedWidthDips;
     private double _windowWidthDips;
     private double _windowHeightDips;
     private AppDockSide _dockSide = AppDockSide.Right;
 
-    public AppBarManager(nint hwnd)
+    public AppBarManager(nint hwnd, ILogger<AppBarManager>? logger = null)
     {
         _hwnd = hwnd;
+        _logger = logger ?? AppLogging.CreateLogger<AppBarManager>();
         _callbackMessage = RegisterWindowMessage("SideDock_AppBar_Callback");
     }
 
     public uint CallbackMessage => _callbackMessage;
 
-    public void Register(double reservedWidthDips, double windowWidthDips, double windowHeightDips, AppDockSide dockSide)
+    public void Register(double reservedWidthDips, double windowWidthDips, double windowHeightDips, AppDockSide dockSide, string reason)
     {
         if (_isRegistered)
         {
-            Apply(reservedWidthDips, windowWidthDips, windowHeightDips, dockSide);
+            _logger.LogInformation("Appbar already registered. Applying current layout. Reason={Reason}", reason);
+            Apply(reservedWidthDips, windowWidthDips, windowHeightDips, dockSide, reason);
             return;
         }
 
         var data = CreateData();
         data.uCallbackMessage = _callbackMessage;
-        SHAppBarMessage(AbmNew, ref data);
+        var result = SHAppBarMessage(AbmNew, ref data);
         _isRegistered = true;
-        Apply(reservedWidthDips, windowWidthDips, windowHeightDips, dockSide);
+        _logger.LogInformation(
+            "Appbar registered. Reason={Reason} Hwnd=0x{Hwnd:X} CallbackMessage={CallbackMessage} Result={Result}",
+            reason,
+            _hwnd,
+            _callbackMessage,
+            (ulong)result);
+        Apply(reservedWidthDips, windowWidthDips, windowHeightDips, dockSide, reason);
     }
 
-    public void Apply(double reservedWidthDips, double windowWidthDips, double windowHeightDips, AppDockSide dockSide)
+    public void Apply(double reservedWidthDips, double windowWidthDips, double windowHeightDips, AppDockSide dockSide, string reason)
     {
         _reservedWidthDips = reservedWidthDips;
         _windowWidthDips = windowWidthDips;
@@ -52,6 +63,7 @@ internal sealed class AppBarManager
         _dockSide = dockSide;
         if (!_isRegistered)
         {
+            _logger.LogDebug("Appbar apply skipped because appbar is not registered. Reason={Reason}", reason);
             return;
         }
 
@@ -60,6 +72,7 @@ internal sealed class AppBarManager
         var reservedWidthPixels = Math.Max(1, layout.DipsToPixels(reservedWidthDips));
         var windowWidthPixels = Math.Max(reservedWidthPixels, layout.DipsToPixels(windowWidthDips));
         var requestedWindowHeightPixels = Math.Max(1, layout.DipsToPixels(windowHeightDips));
+        GetWindowRect(_hwnd, out var windowBefore);
 
         var data = CreateData();
         data.uEdge = (uint)(dockSide == AppDockSide.Left ? AbeLeft : AbeRight);
@@ -79,7 +92,25 @@ internal sealed class AppBarManager
                 Bottom = monitor.Bottom
             };
 
-        SHAppBarMessage(AbmQueryPos, ref data);
+        var queryBefore = data.rc;
+        _logger.LogInformation(
+            "Appbar apply started. Reason={Reason} DockSide={DockSide} ReservedWidthDips={ReservedWidthDips} WindowWidthDips={WindowWidthDips} WindowHeightDips={WindowHeightDips} ReservedWidthPixels={ReservedWidthPixels} WindowWidthPixels={WindowWidthPixels} RequestedWindowHeightPixels={RequestedWindowHeightPixels} Dpi={Dpi} Monitor={@Monitor} WorkArea={@WorkArea} WindowBefore={@WindowBefore} QueryBefore={@QueryBefore}",
+            reason,
+            dockSide,
+            reservedWidthDips,
+            windowWidthDips,
+            windowHeightDips,
+            reservedWidthPixels,
+            windowWidthPixels,
+            requestedWindowHeightPixels,
+            layout.Dpi,
+            ToLogRect(monitor),
+            ToLogRect(layout.WorkPixels),
+            ToLogRect(windowBefore),
+            ToLogRect(queryBefore));
+
+        var queryResult = SHAppBarMessage(AbmQueryPos, ref data);
+        var queryAfter = data.rc;
         if (dockSide == AppDockSide.Left)
         {
             data.rc.Right = data.rc.Left + reservedWidthPixels;
@@ -89,7 +120,9 @@ internal sealed class AppBarManager
             data.rc.Left = data.rc.Right - reservedWidthPixels;
         }
 
-        SHAppBarMessage(AbmSetPos, ref data);
+        var setBefore = data.rc;
+        var setResult = SHAppBarMessage(AbmSetPos, ref data);
+        var setAfter = data.rc;
 
         var windowLeft = dockSide == AppDockSide.Left
             ? data.rc.Left
@@ -98,7 +131,7 @@ internal sealed class AppBarManager
         var windowHeightPixels = Math.Min(requestedWindowHeightPixels, appBarHeightPixels);
         var windowTop = data.rc.Top + Math.Max(0, (appBarHeightPixels - windowHeightPixels) / 2);
 
-        SetWindowPos(
+        var setWindowResult = SetWindowPos(
             _hwnd,
             nint.Zero,
             windowLeft,
@@ -106,23 +139,63 @@ internal sealed class AppBarManager
             windowWidthPixels,
             windowHeightPixels,
             SwpNoActivate | SwpNoZOrder);
+        var setWindowError = setWindowResult ? 0 : Marshal.GetLastPInvokeError();
+        GetWindowRect(_hwnd, out var windowAfter);
+
+        _logger.LogInformation(
+            "Appbar apply completed. Reason={Reason} QueryResult={QueryResult} QueryAfter={@QueryAfter} SetBefore={@SetBefore} SetResult={SetResult} SetAfter={@SetAfter} SetWindowResult={SetWindowResult} SetWindowError={SetWindowError} WindowAfter={@WindowAfter}",
+            reason,
+            (ulong)queryResult,
+            ToLogRect(queryAfter),
+            ToLogRect(setBefore),
+            (ulong)setResult,
+            ToLogRect(setAfter),
+            setWindowResult,
+            setWindowError,
+            ToLogRect(windowAfter));
+
+        if (dockSide == AppDockSide.Right && Math.Abs(windowAfter.Right - monitor.Right) > EdgeTolerancePixels)
+        {
+            _logger.LogWarning(
+                "Right dock final window edge does not match monitor edge. Reason={Reason} WindowRight={WindowRight} MonitorRight={MonitorRight} Difference={Difference} WindowAfter={@WindowAfter} Monitor={@Monitor}",
+                reason,
+                windowAfter.Right,
+                monitor.Right,
+                monitor.Right - windowAfter.Right,
+                ToLogRect(windowAfter),
+                ToLogRect(monitor));
+        }
+        else if (dockSide == AppDockSide.Left && Math.Abs(windowAfter.Left - monitor.Left) > EdgeTolerancePixels)
+        {
+            _logger.LogWarning(
+                "Left dock final window edge does not match monitor edge. Reason={Reason} WindowLeft={WindowLeft} MonitorLeft={MonitorLeft} Difference={Difference} WindowAfter={@WindowAfter} Monitor={@Monitor}",
+                reason,
+                windowAfter.Left,
+                monitor.Left,
+                windowAfter.Left - monitor.Left,
+                ToLogRect(windowAfter),
+                ToLogRect(monitor));
+        }
     }
 
-    public void Refresh()
+    public void Refresh(string reason)
     {
-        Apply(_reservedWidthDips, _windowWidthDips, _windowHeightDips, _dockSide);
+        _logger.LogInformation("Refreshing appbar. Reason={Reason}", reason);
+        Apply(_reservedWidthDips, _windowWidthDips, _windowHeightDips, _dockSide, reason);
     }
 
-    public void Unregister()
+    public void Unregister(string reason)
     {
         if (!_isRegistered)
         {
+            _logger.LogDebug("Appbar unregister skipped because appbar is not registered. Reason={Reason}", reason);
             return;
         }
 
         var data = CreateData();
-        SHAppBarMessage(AbmRemove, ref data);
+        var result = SHAppBarMessage(AbmRemove, ref data);
         _isRegistered = false;
+        _logger.LogInformation("Appbar unregistered. Reason={Reason} Result={Result}", reason, (ulong)result);
     }
 
     private AppBarData CreateData()
@@ -141,7 +214,23 @@ internal sealed class AppBarManager
     private static extern uint RegisterWindowMessage(string lpString);
 
     [DllImport("user32.dll")]
+    private static extern bool GetWindowRect(nint hWnd, out NativeRect lpRect);
+
+    [DllImport("user32.dll", SetLastError = true)]
     private static extern bool SetWindowPos(nint hWnd, nint hWndInsertAfter, int x, int y, int cx, int cy, int uFlags);
+
+    private static object ToLogRect(NativeRect rect)
+    {
+        return new
+        {
+            rect.Left,
+            rect.Top,
+            rect.Right,
+            rect.Bottom,
+            rect.Width,
+            rect.Height
+        };
+    }
 
     [StructLayout(LayoutKind.Sequential)]
     private struct AppBarData

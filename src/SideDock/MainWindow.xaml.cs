@@ -1,3 +1,4 @@
+using Microsoft.Extensions.Logging;
 using Microsoft.Web.WebView2.Core;
 using Microsoft.Web.WebView2.Wpf;
 using Microsoft.Win32;
@@ -76,7 +77,8 @@ public partial class MainWindow : Window
         })();
         """;
 
-    private readonly AppSettings _settings = AppSettings.Load();
+    private readonly AppSettings _settings;
+    private readonly ILogger<MainWindow> _logger;
     private readonly DispatcherTimer _cursorTimer;
     private readonly ObservableCollection<ToolItem> _toolItems;
     private readonly Dictionary<string, WebView2> _browsers = new(StringComparer.OrdinalIgnoreCase);
@@ -101,8 +103,11 @@ public partial class MainWindow : Window
     private HwndSource? _hwndSource;
     private AppBarManager? _appBarManager;
 
-    public MainWindow()
+    public MainWindow(AppSettings settings)
     {
+        _settings = settings;
+        _logger = AppLogging.CreateLogger<MainWindow>();
+
         InitializeComponent();
 
         ApplyTheme();
@@ -122,6 +127,17 @@ public partial class MainWindow : Window
         LoadCachedIcons();
         ToolList.ItemsSource = _toolItems;
         ToolList.SelectedIndex = 0;
+        _logger.LogInformation(
+            "Main window initialized. DockSide={DockSide} ThemeMode={ThemeMode} ToolCount={ToolCount} Tools={@Tools}",
+            _settings.DockSide,
+            _settings.ThemeMode,
+            _settings.Tools.Count,
+            _settings.Tools.Select(tool => new
+            {
+                tool.Id,
+                tool.Title,
+                tool.Url
+            }).ToArray());
 
         _cursorTimer = new DispatcherTimer
         {
@@ -132,7 +148,8 @@ public partial class MainWindow : Window
 
     private async void OnLoaded(object sender, RoutedEventArgs e)
     {
-        DockToConfiguredEdge(GetCurrentDockWidth());
+        _logger.LogInformation("Main window loaded.");
+        DockToConfiguredEdge(GetCurrentDockWidth(), "Loaded");
         _cursorTimer.Start();
         await InitializeWebViewsAsync();
     }
@@ -143,16 +160,18 @@ public partial class MainWindow : Window
         _hwndSource = HwndSource.FromHwnd(handle);
         _hwndSource?.AddHook(WndProc);
 
-        _appBarManager = new AppBarManager(handle);
+        _logger.LogInformation("Window source initialized. Hwnd=0x{Hwnd:X}", handle);
+        _appBarManager = new AppBarManager(handle, AppLogging.CreateLogger<AppBarManager>());
         var currentWidth = GetCurrentDockWidth();
-        _appBarManager.Register(GetReservedWidth(currentWidth), currentWidth, GetDockWindowHeight(), GetDockSide());
+        _appBarManager.Register(GetReservedWidth(currentWidth), currentWidth, GetDockWindowHeight(), GetDockSide(), "SourceInitialized");
     }
 
     private void OnClosing(object? sender, CancelEventArgs e)
     {
+        _logger.LogInformation("Main window closing.");
         _cursorTimer.Stop();
         _hwndSource?.RemoveHook(WndProc);
-        _appBarManager?.Unregister();
+        _appBarManager?.Unregister("Closing");
         MoveResizePreviewBrowserBack();
         CloseResizePreview();
 
@@ -172,6 +191,10 @@ public partial class MainWindow : Window
                 "WebView2");
 
             Directory.CreateDirectory(userDataFolder);
+            _logger.LogInformation(
+                "Initializing WebView2 environment. UserDataFolder={UserDataFolder} ToolCount={ToolCount}",
+                userDataFolder,
+                _toolItems.Count);
             _webViewEnvironment = await CoreWebView2Environment.CreateAsync(userDataFolder: userDataFolder);
 
             foreach (var item in _toolItems)
@@ -180,10 +203,12 @@ public partial class MainWindow : Window
             }
 
             _areWebViewsReady = true;
+            _logger.LogInformation("WebView2 environment initialized.");
             ShowSelectedTool();
         }
         catch (Exception ex)
         {
+            _logger.LogError(ex, "WebView2 initialization failed.");
             var runtimeHint = ex.GetType().Name.Contains("Runtime", StringComparison.OrdinalIgnoreCase)
                 ? "WebView2 Runtime is missing or unavailable. Install Microsoft Edge WebView2 Runtime, then run SideDock again."
                 : "WebView2 could not start.";
@@ -204,6 +229,11 @@ public partial class MainWindow : Window
             return;
         }
 
+        _logger.LogInformation(
+            "Creating WebView2 browser. ToolId={ToolId} ToolTitle={ToolTitle} ToolUrl={ToolUrl}",
+            item.Tool.Id,
+            item.Tool.Title,
+            item.Tool.Url);
         var browser = new WebView2
         {
             Visibility = Visibility.Hidden,
@@ -216,6 +246,7 @@ public partial class MainWindow : Window
         BrowserHost.Children.Add(browser);
 
         await browser.EnsureCoreWebView2Async(_webViewEnvironment);
+        _logger.LogInformation("WebView2 browser ready. ToolId={ToolId}", item.Tool.Id);
         browser.CoreWebView2.Settings.AreDefaultContextMenusEnabled = true;
         browser.CoreWebView2.Settings.AreDevToolsEnabled = true;
         ApplyBrowserTheme(browser);
@@ -234,6 +265,7 @@ public partial class MainWindow : Window
         };
 
         browser.CoreWebView2.Navigate(item.Tool.Url);
+        _logger.LogInformation("WebView2 initial navigation requested. ToolId={ToolId} ToolUrl={ToolUrl}", item.Tool.Id, item.Tool.Url);
 
         if (IsCurrentTool(item.Tool))
         {
@@ -599,6 +631,7 @@ public partial class MainWindow : Window
         _currentItem = item;
         TitleText.Text = item.Tool.Title;
         UrlText.Text = GetCurrentUrl();
+        _logger.LogDebug("Selected tool shown. ToolId={ToolId}", item.Tool.Id);
 
         foreach (var (toolId, browser) in _browsers)
         {
@@ -613,6 +646,7 @@ public partial class MainWindow : Window
 
     private void OnBrowserNavigationStarting(ToolDefinition tool)
     {
+        _logger.LogDebug("WebView2 navigation starting. ToolId={ToolId}", tool.Id);
         _toolStatuses[tool.Id] = "Loading...";
         if (IsCurrentTool(tool))
         {
@@ -623,6 +657,11 @@ public partial class MainWindow : Window
     private async Task OnBrowserNavigationCompletedAsync(ToolItem item, WebView2 browser, CoreWebView2NavigationCompletedEventArgs e)
     {
         _toolStatuses[item.Tool.Id] = e.IsSuccess ? "Ready" : $"Load failed: {e.WebErrorStatus}";
+        _logger.LogInformation(
+            "WebView2 navigation completed. ToolId={ToolId} IsSuccess={IsSuccess} WebErrorStatus={WebErrorStatus}",
+            item.Tool.Id,
+            e.IsSuccess,
+            e.WebErrorStatus);
 
         if (e.IsSuccess)
         {
@@ -714,6 +753,7 @@ public partial class MainWindow : Window
 
         _settings.ThemeMode = AppSettings.NormalizeThemeMode(themeMode).ToString();
         AppSettings.Save(_settings);
+        _logger.LogInformation("Theme mode changed. ThemeMode={ThemeMode}", _settings.ThemeMode);
         ApplyTheme();
         ApplyBrowserThemes();
         UpdateSettingsMenuChecks();
@@ -728,8 +768,9 @@ public partial class MainWindow : Window
 
         _settings.DockSide = AppSettings.NormalizeDockSide(dockSide).ToString();
         AppSettings.Save(_settings);
+        _logger.LogInformation("Dock side changed. DockSide={DockSide}", _settings.DockSide);
         ApplyDockSideLayout();
-        DockToConfiguredEdge(GetCurrentDockWidth());
+        DockToConfiguredEdge(GetCurrentDockWidth(), "DockSideChanged");
         UpdateSettingsMenuChecks();
     }
 
@@ -899,6 +940,7 @@ public partial class MainWindow : Window
     {
         _settings.StartWithWindows = !_settings.StartWithWindows;
         AppSettings.Save(_settings);
+        _logger.LogInformation("Start with Windows setting changed. StartWithWindows={StartWithWindows}", _settings.StartWithWindows);
         ApplyStartupSetting();
         UpdateSettingsMenuChecks();
     }
@@ -910,6 +952,7 @@ public partial class MainWindow : Window
             using var key = Registry.CurrentUser.CreateSubKey(RunRegistryKeyPath);
             if (key is null)
             {
+                _logger.LogWarning("Could not open startup registry key.");
                 SetStatus("Could not update startup setting.");
                 return;
             }
@@ -917,13 +960,16 @@ public partial class MainWindow : Window
             if (_settings.StartWithWindows && TryGetStartupCommand(out var command))
             {
                 key.SetValue(RunRegistryValueName, command, RegistryValueKind.String);
+                _logger.LogInformation("Startup registry value set. ValueName={ValueName}", RunRegistryValueName);
                 return;
             }
 
             key.DeleteValue(RunRegistryValueName, throwOnMissingValue: false);
+            _logger.LogInformation("Startup registry value removed. ValueName={ValueName}", RunRegistryValueName);
         }
         catch (Exception ex)
         {
+            _logger.LogWarning(ex, "Could not update startup setting.");
             SetStatus($"Could not update startup setting: {ex.Message}");
         }
     }
@@ -963,6 +1009,11 @@ public partial class MainWindow : Window
 
         _settings.Tools.Add(tool);
         AppSettings.Save(_settings);
+        _logger.LogInformation(
+            "Tool added. ToolId={ToolId} ToolTitle={ToolTitle} ToolUrl={ToolUrl}",
+            tool.Id,
+            tool.Title,
+            tool.Url);
 
         var item = new ToolItem(tool);
         _toolItems.Add(item);
@@ -1009,6 +1060,11 @@ public partial class MainWindow : Window
         _toolStatuses.Remove(item.Tool.Id);
         _settings.Tools.RemoveAll(tool => tool.Id.Equals(item.Tool.Id, StringComparison.OrdinalIgnoreCase));
         AppSettings.Save(_settings);
+        _logger.LogInformation(
+            "Tool removed. ToolId={ToolId} ToolTitle={ToolTitle} ToolUrl={ToolUrl}",
+            item.Tool.Id,
+            item.Tool.Title,
+            item.Tool.Url);
         _toolItems.Remove(item);
 
         ToolList.SelectedIndex = Math.Min(removedIndex, _toolItems.Count - 1);
@@ -1034,7 +1090,26 @@ public partial class MainWindow : Window
 
     private void OnExitClick(object sender, RoutedEventArgs e)
     {
+        _logger.LogInformation("Exit requested from settings menu.");
         Application.Current.Shutdown();
+    }
+
+    private void OnOpenLogsFolderClick(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            Directory.CreateDirectory(AppSettings.LogDirectory);
+            Process.Start(new ProcessStartInfo(AppSettings.LogDirectory)
+            {
+                UseShellExecute = true
+            });
+            _logger.LogInformation("Opened logs folder. LogDirectory={LogDirectory}", AppSettings.LogDirectory);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Could not open logs folder. LogDirectory={LogDirectory}", AppSettings.LogDirectory);
+            SetStatus($"Could not open logs folder: {ex.Message}");
+        }
     }
 
     private void OnOpenExternalClick(object sender, RoutedEventArgs e)
@@ -1044,14 +1119,14 @@ public partial class MainWindow : Window
 
     private void OnHideClick(object sender, RoutedEventArgs e)
     {
-        Collapse(force: true);
+        Collapse(force: true, reason: "HideButton");
     }
 
     private void OnClosePageClick(object sender, RoutedEventArgs e)
     {
         if (_currentItem is null)
         {
-            Collapse(force: true);
+            Collapse(force: true, reason: "ClosePage");
             return;
         }
 
@@ -1059,11 +1134,12 @@ public partial class MainWindow : Window
         {
             BrowserHost.Children.Remove(browser);
             browser.Dispose();
+            _logger.LogInformation("Closed WebView2 browser. ToolId={ToolId}", _currentItem.Tool.Id);
         }
 
         _toolStatuses[_currentItem.Tool.Id] = "Closed";
         SetStatus("Closed");
-        Collapse(force: true);
+        Collapse(force: true, reason: "ClosePage");
     }
 
     private void OnPinChanged(object sender, RoutedEventArgs e)
@@ -1076,7 +1152,8 @@ public partial class MainWindow : Window
         }
 
         ApplyTopmostState();
-        DockToConfiguredEdge(GetCurrentDockWidth());
+        _logger.LogInformation("Pin state changed. IsPinned={IsPinned}", _isPinned);
+        DockToConfiguredEdge(GetCurrentDockWidth(), "PinChanged");
     }
 
     private void OnCursorTimerTick(object? sender, EventArgs e)
@@ -1108,7 +1185,7 @@ public partial class MainWindow : Window
         _cursorLeftAt ??= DateTime.UtcNow;
         if (DateTime.UtcNow - _cursorLeftAt.Value >= TimeSpan.FromMilliseconds(_settings.AutoHideDelayMilliseconds))
         {
-            Collapse();
+            Collapse(reason: "AutoHide");
         }
     }
 
@@ -1132,6 +1209,7 @@ public partial class MainWindow : Window
 
         _cursorLeftAt = null;
         _isAutoHiddenForFullscreen = true;
+        _logger.LogInformation("Hiding SideDock for fullscreen app.");
         Hide();
     }
 
@@ -1148,8 +1226,9 @@ public partial class MainWindow : Window
         ApplyTopmostState();
 
         var currentWidth = GetCurrentDockWidth();
-        _appBarManager?.Register(GetReservedWidth(currentWidth), currentWidth, GetDockWindowHeight(), GetDockSide());
-        DockToConfiguredEdge(currentWidth);
+        _logger.LogInformation("Restoring SideDock after fullscreen app.");
+        _appBarManager?.Register(GetReservedWidth(currentWidth), currentWidth, GetDockWindowHeight(), GetDockSide(), "FullscreenRestore");
+        DockToConfiguredEdge(currentWidth, "FullscreenRestore");
     }
 
     private void Expand()
@@ -1166,13 +1245,15 @@ public partial class MainWindow : Window
         ResizeGrip.Visibility = Visibility.Visible;
         ApplyDockSideLayout();
         ApplyTopmostState();
-        DockToConfiguredEdge(GetCurrentDockWidth());
+        _logger.LogInformation("SideDock expanded. Width={Width}", GetCurrentDockWidth());
+        DockToConfiguredEdge(GetCurrentDockWidth(), "Expand");
     }
 
-    private void Collapse(bool force = false)
+    private void Collapse(bool force = false, string reason = "Collapse")
     {
         if (_isPinned && !force)
         {
+            _logger.LogDebug("Collapse skipped because SideDock is pinned. Reason={Reason}", reason);
             return;
         }
 
@@ -1182,7 +1263,8 @@ public partial class MainWindow : Window
         ContentColumn.Width = new GridLength(0);
         ApplyDockSideLayout();
         ApplyTopmostState();
-        DockToConfiguredEdge(GetCurrentDockWidth());
+        _logger.LogInformation("SideDock collapsed. Reason={Reason} Width={Width}", reason, GetCurrentDockWidth());
+        DockToConfiguredEdge(GetCurrentDockWidth(), reason);
     }
 
     private void OnResizeGripMouseLeftButtonDown(object sender, MouseButtonEventArgs e)
@@ -1258,7 +1340,8 @@ public partial class MainWindow : Window
             ResizeGrip.ReleaseMouseCapture();
         }
 
-        DockToConfiguredEdge(GetCurrentDockWidth());
+        _logger.LogInformation("Resize completed. ExpandedWidth={ExpandedWidth}", _expandedWidth);
+        DockToConfiguredEdge(GetCurrentDockWidth(), "ResizeComplete");
     }
 
     private void ShowResizePreview()
@@ -1493,24 +1576,37 @@ public partial class MainWindow : Window
         return GetCurrentMonitorLayout().MonitorDips;
     }
 
-    private void DockToConfiguredEdge(double width)
+    private void DockToConfiguredEdge(double width, string reason)
     {
         var clampedWidth = _isExpanded
             ? ClampExpandedWidth(width)
             : _settings.CollapsedWidth;
         var layout = GetCurrentMonitorLayout();
         var windowHeight = GetDockWindowHeight(layout);
+        _logger.LogInformation(
+            "Docking requested. Reason={Reason} DockSide={DockSide} IsExpanded={IsExpanded} IsPinned={IsPinned} RequestedWidth={RequestedWidth} ClampedWidth={ClampedWidth} WindowHeight={WindowHeight} Monitor={@Monitor} WorkArea={@WorkArea} Dpi={Dpi}",
+            reason,
+            GetDockSide(),
+            _isExpanded,
+            _isPinned,
+            width,
+            clampedWidth,
+            windowHeight,
+            ToLogRect(layout.MonitorPixels),
+            ToLogRect(layout.WorkPixels),
+            layout.Dpi);
         Width = clampedWidth;
         Height = windowHeight;
 
         if (_isAutoHiddenForFullscreen)
         {
+            _logger.LogInformation("Docking skipped because SideDock is hidden for fullscreen app. Reason={Reason}", reason);
             return;
         }
 
         if (_appBarManager is not null)
         {
-            _appBarManager.Apply(GetReservedWidth(clampedWidth), clampedWidth, windowHeight, GetDockSide());
+            _appBarManager.Apply(GetReservedWidth(clampedWidth), clampedWidth, windowHeight, GetDockSide(), reason);
             return;
         }
 
@@ -1518,6 +1614,26 @@ public partial class MainWindow : Window
         Left = DockLayoutCalculator.GetDockLeft(GetDockSide(), monitorBounds.Left, monitorBounds.Right, clampedWidth);
         Top = monitorBounds.Top + Math.Max(0, (monitorBounds.Height - windowHeight) / 2);
         Height = windowHeight;
+        _logger.LogInformation(
+            "Docked without appbar manager. Reason={Reason} Left={Left} Top={Top} Width={Width} Height={Height}",
+            reason,
+            Left,
+            Top,
+            Width,
+            Height);
+    }
+
+    private static object ToLogRect(NativeRect rect)
+    {
+        return new
+        {
+            rect.Left,
+            rect.Top,
+            rect.Right,
+            rect.Bottom,
+            rect.Width,
+            rect.Height
+        };
     }
 
     private double GetDockWindowHeight()
@@ -1970,6 +2086,7 @@ public partial class MainWindow : Window
         }
         catch (Exception ex)
         {
+            _logger.LogWarning(ex, "Could not open external browser. HasUrl={HasUrl}", !string.IsNullOrWhiteSpace(url));
             SetStatus($"Could not open external browser: {ex.Message}");
         }
     }
@@ -1988,10 +2105,12 @@ public partial class MainWindow : Window
         {
             if (wParam.ToInt32() == AbnPosChanged)
             {
-                Dispatcher.BeginInvoke(() => _appBarManager.Refresh());
+                _logger.LogInformation("Received appbar position changed notification.");
+                Dispatcher.BeginInvoke(() => _appBarManager.Refresh("AppBarPosChanged"));
             }
             else if (wParam.ToInt32() == AbnFullscreenApp)
             {
+                _logger.LogInformation("Received appbar fullscreen notification.");
                 Dispatcher.BeginInvoke(UpdateFullscreenAutoHideState);
             }
 
@@ -2001,11 +2120,12 @@ public partial class MainWindow : Window
 
         if (msg is WmDisplayChange or WmSettingChange or WmDpiChanged)
         {
+            _logger.LogInformation("Received display, setting, or DPI message. Message=0x{Message:X}", msg);
             Dispatcher.BeginInvoke(() =>
             {
                 ApplyTheme();
                 ApplyBrowserThemes();
-                DockToConfiguredEdge(GetCurrentDockWidth());
+                DockToConfiguredEdge(GetCurrentDockWidth(), "DisplayOrDpiChanged");
             });
         }
 

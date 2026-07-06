@@ -109,3 +109,14 @@ Edit `src\SideDock\appsettings.json` to change the fixed web tools. The supporte
 - `ThemeMode`: `Dark`, `Light`, or `System`
 - `DockSide`: `Left` or `Right`
 - `StartWithWindows`: `true` or `false`
+- `LogLevel`: `Trace`, `Debug`, `Information`, `Warning`, `Error`, `Critical`, or `None`
+- `LogFileSizeLimitBytes`: per-file log size limit before rolling
+- `LogRetainedFileCount`: number of rolling log files to retain
+
+## Local Logs
+
+SideDock writes local structured logs to `%LOCALAPPDATA%\SideDock\logs` by default. Use `Open logs folder` from the settings menu to open the folder.
+
+Logs use compact JSON lines (`sidedock-.clef`) with daily and size-based rolling. Defaults keep five files with a 2 MiB per-file limit. The logs include appbar, monitor, DPI, WebView lifecycle, startup, settings, and exception diagnostics.
+
+For privacy, logs may include configured tool IDs, titles, and configured tool URLs. They do not record the current page URL after navigation, external URLs opened from pages, WebView message contents, or page content.

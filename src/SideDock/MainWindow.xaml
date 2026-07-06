@@ -213,6 +213,7 @@
                                 </MenuItem>
                                 <MenuItem x:Name="StartWithWindowsMenuItem" Header="Start with Windows" IsCheckable="True" Click="OnStartWithWindowsClick" />
                                 <Separator />
+                                <MenuItem Header="Open logs folder" Click="OnOpenLogsFolderClick" />
                                 <MenuItem x:Name="CurrentVersionMenuItem" Header="Version" IsEnabled="False" />
                                 <MenuItem Header="About" Click="OnAboutClick" />
                                 <MenuItem Header="Exit" Click="OnExitClick" />

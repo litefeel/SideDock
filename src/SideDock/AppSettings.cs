@@ -1,10 +1,19 @@
 using System.IO;
 using System.Text.Json;
+using Microsoft.Extensions.Logging;
 
 namespace SideDock;
 
 public sealed class AppSettings
 {
+    public const string DefaultLogLevel = "Information";
+    public const long DefaultLogFileSizeLimitBytes = 2 * 1024 * 1024;
+    public const int DefaultLogRetainedFileCount = 5;
+    public const long MinLogFileSizeLimitBytes = 64 * 1024;
+    public const long MaxLogFileSizeLimitBytes = 50 * 1024 * 1024;
+    public const int MinLogRetainedFileCount = 1;
+    public const int MaxLogRetainedFileCount = 20;
+
     public double DefaultExpandedWidth { get; set; } = 430;
     public double MinExpandedWidth { get; set; } = 360;
     public double MaxExpandedWidth { get; set; } = 0;
@@ -14,26 +23,38 @@ public sealed class AppSettings
     public bool StartWithWindows { get; set; } = false;
     public string ThemeMode { get; set; } = nameof(AppThemeMode.System);
     public string DockSide { get; set; } = nameof(AppDockSide.Right);
+    public string LogLevel { get; set; } = DefaultLogLevel;
+    public long LogFileSizeLimitBytes { get; set; } = DefaultLogFileSizeLimitBytes;
+    public int LogRetainedFileCount { get; set; } = DefaultLogRetainedFileCount;
     public List<ToolDefinition> Tools { get; set; } = [];
 
-    public static string UserSettingsPath => Path.Combine(
+    public static string UserDataDirectory => Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-        "SideDock",
+        "SideDock");
+
+    public static string UserSettingsPath => Path.Combine(
+        UserDataDirectory,
         "appsettings.json");
+
+    public static string LogDirectory => Path.Combine(UserDataDirectory, "logs");
 
     public static AppSettings Load()
     {
+        var logger = AppLogging.CreateLogger<AppSettings>();
         if (TryLoadFromPath(UserSettingsPath, out var userSettings))
         {
+            logger.LogInformation("Loaded user settings. Path={SettingsPath}", UserSettingsPath);
             return userSettings;
         }
 
         var path = Path.Combine(AppContext.BaseDirectory, "appsettings.json");
         if (TryLoadFromPath(path, out var appSettings))
         {
+            logger.LogInformation("Loaded bundled settings. Path={SettingsPath}", path);
             return appSettings;
         }
 
+        logger.LogWarning("No valid settings file was found. Using built-in defaults.");
         return CreateDefault();
     }
 
@@ -44,6 +65,7 @@ public sealed class AppSettings
             settings,
             new JsonSerializerOptions { WriteIndented = true });
         File.WriteAllText(UserSettingsPath, json);
+        AppLogging.CreateLogger<AppSettings>().LogInformation("Saved user settings. Path={SettingsPath}", UserSettingsPath);
     }
 
     private static bool TryLoadFromPath(string path, out AppSettings settings)
@@ -71,8 +93,9 @@ public sealed class AppSettings
 
             return true;
         }
-        catch
+        catch (Exception ex)
         {
+            AppLogging.CreateLogger<AppSettings>().LogWarning(ex, "Could not load settings. Path={SettingsPath}", path);
             return false;
         }
     }
@@ -96,6 +119,15 @@ public sealed class AppSettings
         DefaultExpandedWidth = Math.Max(DefaultExpandedWidth, MinExpandedWidth);
         ThemeMode = NormalizeThemeMode(ThemeMode).ToString();
         DockSide = NormalizeDockSide(DockSide).ToString();
+        LogLevel = NormalizeLogLevel(LogLevel);
+        LogFileSizeLimitBytes = Math.Clamp(
+            LogFileSizeLimitBytes,
+            MinLogFileSizeLimitBytes,
+            MaxLogFileSizeLimitBytes);
+        LogRetainedFileCount = Math.Clamp(
+            LogRetainedFileCount,
+            MinLogRetainedFileCount,
+            MaxLogRetainedFileCount);
     }
 
     public static AppThemeMode NormalizeThemeMode(string? value)
@@ -114,6 +146,21 @@ public sealed class AppSettings
         {
             "left" => AppDockSide.Left,
             _ => AppDockSide.Right
+        };
+    }
+
+    public static string NormalizeLogLevel(string? value)
+    {
+        return value?.Trim().ToLowerInvariant() switch
+        {
+            "trace" => "Trace",
+            "debug" => "Debug",
+            "information" or "info" => "Information",
+            "warning" or "warn" => "Warning",
+            "error" => "Error",
+            "critical" or "fatal" => "Critical",
+            "none" => "None",
+            _ => DefaultLogLevel
         };
     }
 }
