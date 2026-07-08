@@ -1200,6 +1200,18 @@ public partial class MainWindow : Window
         RestoreAfterFullscreenApp();
     }
 
+    private void HandleAppbarFullscreenNotification()
+    {
+        var wasAutoHiddenForFullscreen = _isAutoHiddenForFullscreen;
+        UpdateFullscreenAutoHideState();
+
+        if (!_isAutoHiddenForFullscreen && !wasAutoHiddenForFullscreen && !_isResizing)
+        {
+            _logger.LogInformation("Reapplying dock position after fullscreen appbar notification.");
+            DockToConfiguredEdge(GetCurrentDockWidth(), "AppBarFullscreenNotification");
+        }
+    }
+
     private void HideForFullscreenApp()
     {
         if (_isAutoHiddenForFullscreen)
@@ -2111,7 +2123,7 @@ public partial class MainWindow : Window
             else if (wParam.ToInt32() == AbnFullscreenApp)
             {
                 _logger.LogInformation("Received appbar fullscreen notification.");
-                Dispatcher.BeginInvoke(UpdateFullscreenAutoHideState);
+                Dispatcher.BeginInvoke(HandleAppbarFullscreenNotification);
             }
 
             handled = true;
