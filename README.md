@@ -85,9 +85,9 @@ Open `SideDock.slnx` in Visual Studio 2022 or later. Set `SideDock` as the start
 
 The app targets `net10.0-windows`, so Visual Studio must have the .NET 10 SDK and the .NET desktop development workload installed. The target machine also needs Microsoft Edge WebView2 Runtime.
 
-The sidebar starts as a persistent full-height icon rail on the right edge by default and registers its reserved edge space as a Windows appbar, so maximized windows avoid the SideDock edge. The appbar always shows every configured site button and the settings button, whether the web panel is expanded or hidden. When another application is fullscreen on the same monitor, SideDock automatically hides while keeping its appbar space reserved, avoiding desktop relayout until fullscreen ends. Screenshot capture overlays are ignored so SideDock stays available while taking screenshots. The dock side can be changed to left or right from the settings menu. The rail shows each site's favicon only; missing favicons use a default icon, and loaded favicons are cached under `%LOCALAPPDATA%\SideDock\Icons` for immediate display on the next launch.
+The sidebar starts as a persistent full-height icon rail on the right edge by default and registers its reserved edge space as a Windows appbar, so maximized windows avoid the SideDock edge. The appbar always shows every configured site button and the settings button, whether the web panel is expanded or hidden. No site is selected at startup. When another application is fullscreen on the same monitor, SideDock automatically hides while keeping its appbar space reserved, avoiding desktop relayout until fullscreen ends. Screenshot capture overlays are ignored so SideDock stays available while taking screenshots. The dock side can be changed to left or right from the settings menu. The rail loads favicons from `%LOCALAPPDATA%\SideDock\Icons`; missing entries show the configured `IconKey` while SideDock makes a lightweight `/favicon.ico` request in the background. Opening a site can replace that fallback with a higher-quality icon from the page.
 
-Clicking a site button expands the web panel. The app is always topmost. The expanded toolbar contains only open externally, pin, hide, and close-page buttons. Pin is shared across all sites.
+Clicking a site button selects it, creates its WebView2 instance on first use, and expands the web panel. SideDock does not initialize WebView2 or load any configured page before that first explicit click. Adding a URL leaves it unselected, and removing the selected URL returns the rail to its unselected state. The app is always topmost. The expanded toolbar contains only open externally, pin, hide, and close-page buttons. Pin is shared across all sites.
 
 When pin is enabled, the expanded web panel is also registered as appbar space, so maximized windows avoid the full expanded width. When pin is disabled, only the icon rail reserves desktop space; the expanded web panel overlays other windows.
 
@@ -95,7 +95,7 @@ The expanded width is capped dynamically at the current screen width minus the p
 
 The settings menu supports `Dark`, `Light`, and `System` theme modes. `Dark` and `Light` also set the embedded pages' preferred color scheme; `System` follows the Windows app theme preference.
 
-Each configured site gets its own WebView2 instance, so switching icons restores that site's existing page immediately. The hide button collapses the panel while keeping page instances alive. The close button disposes the current page and collapses the panel; selecting that site again creates a fresh WebView2 instance.
+Each activated site gets its own WebView2 instance, so switching icons restores that site's existing page immediately. Invisible pages use WebView2's low-memory target while their scripts and network connections continue running. The hide button collapses the panel and applies the low-memory target without disposing existing pages. The close button disposes the current page and collapses the panel; clicking that site again creates a fresh WebView2 instance.
 
 ## Configure Tools
 

@@ -143,9 +143,9 @@
                         Background="{DynamicResource DefaultIconBackground}"
                         HorizontalAlignment="Center"
                         VerticalAlignment="Center">
-                    <TextBlock Text="&#xE774;"
-                               FontFamily="Segoe MDL2 Assets"
-                               FontSize="14"
+                    <TextBlock Text="{Binding Tool.IconKey, TargetNullValue=UR, FallbackValue=UR}"
+                               FontSize="10"
+                               FontWeight="SemiBold"
                                Foreground="{DynamicResource DefaultIconForeground}"
                                HorizontalAlignment="Center"
                                VerticalAlignment="Center" />
@@ -225,7 +225,7 @@
                              BorderThickness="0"
                              Background="Transparent"
                              Foreground="{DynamicResource ToolListForeground}"
-                             SelectionChanged="OnToolSelectionChanged"
+                             Focusable="False"
                              PreviewMouseLeftButtonDown="OnToolListMouseLeftButtonDown"
                              PreviewMouseLeftButtonUp="OnToolListMouseLeftButtonUp"
                              ScrollViewer.HorizontalScrollBarVisibility="Disabled"
@@ -236,6 +236,7 @@
                                 <Setter Property="Width" Value="40" />
                                 <Setter Property="Height" Value="40" />
                                 <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+                                <Setter Property="Focusable" Value="False" />
                                 <Setter Property="Margin" Value="0,0,0,10" />
                                 <Setter Property="Padding" Value="0" />
                                 <Setter Property="Background" Value="Transparent" />

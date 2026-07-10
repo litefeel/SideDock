@@ -30,6 +30,10 @@ public partial class MainWindow : Window
     private const int AbnFullscreenApp = 0x00000002;
     private const int DisplayIconSize = 24;
     private const int PreferredIconFrameSize = 48;
+    private const int MaxCachedIconDimension = 256;
+    private const int MaxIconSourceDimension = 1024;
+    private const long MaxIconSourcePixels = 1024 * 1024;
+    private const int MaxIconDownloadBytes = 2 * 1024 * 1024;
     private const int GaRoot = 2;
     private const int DwmwaExtendedFrameBounds = 9;
     private const int MaxWindowTextLength = 512;
@@ -41,6 +45,8 @@ public partial class MainWindow : Window
     {
         Timeout = TimeSpan.FromSeconds(8)
     };
+
+    private static readonly SemaphoreSlim IconDownloadGate = new(3, 3);
 
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
@@ -82,10 +88,16 @@ public partial class MainWindow : Window
     private readonly DispatcherTimer _cursorTimer;
     private readonly ObservableCollection<ToolItem> _toolItems;
     private readonly Dictionary<string, WebView2> _browsers = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, Task<WebView2?>> _browserCreationTasks = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, CancellationTokenSource> _browserCreationCancellations = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, SemaphoreSlim> _iconCacheLocks = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, CancellationTokenSource> _iconRefreshCancellations = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, string> _toolStatuses = new(StringComparer.OrdinalIgnoreCase);
+    private readonly CancellationTokenSource _lifetimeCancellation = new();
     private DateTime? _cursorLeftAt;
     private ToolItem? _currentItem;
     private CoreWebView2Environment? _webViewEnvironment;
+    private Task<CoreWebView2Environment>? _webViewEnvironmentTask;
     private double _expandedWidth;
     private bool _isExpanded;
     private bool _isPinned;
@@ -98,8 +110,8 @@ public partial class MainWindow : Window
     private Border? _resizePreviewPanel;
     private WebView2? _resizePreviewBrowser;
     private bool _isContentHiddenForResize;
-    private bool _areWebViewsReady;
     private bool _isAutoHiddenForFullscreen;
+    private bool _isClosing;
     private HwndSource? _hwndSource;
     private AppBarManager? _appBarManager;
 
@@ -126,7 +138,7 @@ public partial class MainWindow : Window
         _toolItems = new ObservableCollection<ToolItem>(_settings.Tools.Select(tool => new ToolItem(tool)));
         LoadCachedIcons();
         ToolList.ItemsSource = _toolItems;
-        ToolList.SelectedIndex = 0;
+        ToolList.SelectedIndex = -1;
         _logger.LogInformation(
             "Main window initialized. DockSide={DockSide} ThemeMode={ThemeMode} ToolCount={ToolCount} Tools={@Tools}",
             _settings.DockSide,
@@ -151,7 +163,8 @@ public partial class MainWindow : Window
         _logger.LogInformation("Main window loaded.");
         DockToConfiguredEdge(GetCurrentDockWidth(), "Loaded");
         _cursorTimer.Start();
-        await InitializeWebViewsAsync();
+        _logger.LogInformation("WebView2 initialization deferred until a tool is activated.");
+        await RefreshMissingIconsAsync();
     }
 
     private void OnSourceInitialized(object? sender, EventArgs e)
@@ -169,6 +182,18 @@ public partial class MainWindow : Window
     private void OnClosing(object? sender, CancelEventArgs e)
     {
         _logger.LogInformation("Main window closing.");
+        _isClosing = true;
+        _lifetimeCancellation.Cancel();
+        foreach (var cancellation in _browserCreationCancellations.Values.ToArray())
+        {
+            cancellation.Cancel();
+        }
+
+        foreach (var cancellation in _iconRefreshCancellations.Values.ToArray())
+        {
+            cancellation.Cancel();
+        }
+
         _cursorTimer.Stop();
         _hwndSource?.RemoveHook(WndProc);
         _appBarManager?.Unregister("Closing");
@@ -179,98 +204,216 @@ public partial class MainWindow : Window
         {
             browser.Dispose();
         }
+
+        _browsers.Clear();
     }
 
-    private async Task InitializeWebViewsAsync()
+    private async Task<CoreWebView2Environment> EnsureWebViewEnvironmentAsync()
     {
+        if (_webViewEnvironment is not null)
+        {
+            return _webViewEnvironment;
+        }
+
+        var environmentTask = _webViewEnvironmentTask;
+        if (environmentTask is null)
+        {
+            environmentTask = CreateWebViewEnvironmentAsync();
+            _webViewEnvironmentTask = environmentTask;
+        }
+
         try
         {
-            var userDataFolder = Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-                "SideDock",
-                "WebView2");
-
-            Directory.CreateDirectory(userDataFolder);
-            _logger.LogInformation(
-                "Initializing WebView2 environment. UserDataFolder={UserDataFolder} ToolCount={ToolCount}",
-                userDataFolder,
-                _toolItems.Count);
-            _webViewEnvironment = await CoreWebView2Environment.CreateAsync(userDataFolder: userDataFolder);
-
-            foreach (var item in _toolItems)
+            return await environmentTask;
+        }
+        catch
+        {
+            if (ReferenceEquals(_webViewEnvironmentTask, environmentTask))
             {
-                await CreateBrowserAsync(item);
+                _webViewEnvironmentTask = null;
             }
 
-            _areWebViewsReady = true;
-            _logger.LogInformation("WebView2 environment initialized.");
-            ShowSelectedTool();
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "WebView2 initialization failed.");
-            var runtimeHint = ex.GetType().Name.Contains("Runtime", StringComparison.OrdinalIgnoreCase)
-                ? "WebView2 Runtime is missing or unavailable. Install Microsoft Edge WebView2 Runtime, then run SideDock again."
-                : "WebView2 could not start.";
-
-            SetStatus(runtimeHint);
-            MessageBox.Show(
-                $"{runtimeHint}\n\n{ex.Message}",
-                "SideDock",
-                MessageBoxButton.OK,
-                MessageBoxImage.Error);
+            throw;
         }
     }
 
-    private async Task CreateBrowserAsync(ToolItem item)
+    private async Task<CoreWebView2Environment> CreateWebViewEnvironmentAsync()
     {
-        if (_webViewEnvironment is null || _browsers.ContainsKey(item.Tool.Id))
+        if (_isClosing)
         {
-            return;
+            throw new OperationCanceledException();
         }
 
-        _logger.LogInformation(
-            "Creating WebView2 browser. ToolId={ToolId} ToolTitle={ToolTitle} ToolUrl={ToolUrl}",
-            item.Tool.Id,
-            item.Tool.Title,
-            item.Tool.Url);
-        var browser = new WebView2
-        {
-            Visibility = Visibility.Hidden,
-            HorizontalAlignment = HorizontalAlignment.Stretch,
-            VerticalAlignment = VerticalAlignment.Stretch
-        };
+        var userDataFolder = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+            "SideDock",
+            "WebView2");
 
-        _browsers[item.Tool.Id] = browser;
-        _toolStatuses[item.Tool.Id] = "Loading...";
-        BrowserHost.Children.Add(browser);
-
-        await browser.EnsureCoreWebView2Async(_webViewEnvironment);
-        _logger.LogInformation("WebView2 browser ready. ToolId={ToolId}", item.Tool.Id);
-        browser.CoreWebView2.Settings.AreDefaultContextMenusEnabled = true;
-        browser.CoreWebView2.Settings.AreDevToolsEnabled = true;
-        ApplyBrowserTheme(browser);
-        await browser.CoreWebView2.AddScriptToExecuteOnDocumentCreatedAsync(ExternalBlankLinkScript);
-        browser.CoreWebView2.WebMessageReceived += (_, args) => OnBrowserWebMessageReceived(args);
-        browser.CoreWebView2.NavigationStarting += (_, _) => OnBrowserNavigationStarting(item.Tool);
-        browser.CoreWebView2.NavigationCompleted += async (_, args) => await OnBrowserNavigationCompletedAsync(item, browser, args);
-        browser.CoreWebView2.NewWindowRequested += (_, args) => OnNewWindowRequested(browser, args);
-        browser.CoreWebView2.FaviconChanged += async (_, _) => await CacheFallbackFaviconAsync(item, browser);
-        browser.CoreWebView2.SourceChanged += (_, _) =>
+        Directory.CreateDirectory(userDataFolder);
+        _logger.LogInformation("Initializing WebView2 environment. UserDataFolder={UserDataFolder}", userDataFolder);
+        var environment = await CoreWebView2Environment.CreateAsync(userDataFolder: userDataFolder);
+        if (_isClosing)
         {
+            throw new OperationCanceledException();
+        }
+
+        _webViewEnvironment = environment;
+        _logger.LogInformation("WebView2 environment initialized.");
+        return environment;
+    }
+
+    private async Task<WebView2?> EnsureBrowserAsync(ToolItem item)
+    {
+        if (_browsers.TryGetValue(item.Tool.Id, out var existingBrowser))
+        {
+            return existingBrowser;
+        }
+
+        if (_browserCreationTasks.TryGetValue(item.Tool.Id, out var existingTask))
+        {
+            return await existingTask;
+        }
+
+        var cancellation = new CancellationTokenSource();
+        var creationTask = CreateBrowserAsync(item, cancellation.Token);
+        _browserCreationTasks[item.Tool.Id] = creationTask;
+        _browserCreationCancellations[item.Tool.Id] = cancellation;
+
+        try
+        {
+            return await creationTask;
+        }
+        finally
+        {
+            if (_browserCreationTasks.TryGetValue(item.Tool.Id, out var registeredTask)
+                && ReferenceEquals(registeredTask, creationTask))
+            {
+                _browserCreationTasks.Remove(item.Tool.Id);
+            }
+
+            if (_browserCreationCancellations.TryGetValue(item.Tool.Id, out var registeredCancellation)
+                && ReferenceEquals(registeredCancellation, cancellation))
+            {
+                _browserCreationCancellations.Remove(item.Tool.Id);
+            }
+
+            cancellation.Dispose();
+        }
+    }
+
+    private async Task<WebView2?> CreateBrowserAsync(ToolItem item, CancellationToken cancellationToken)
+    {
+        WebView2? browser = null;
+
+        try
+        {
+            var environment = await EnsureWebViewEnvironmentAsync();
+            cancellationToken.ThrowIfCancellationRequested();
+            if (_isClosing || !_toolItems.Contains(item))
+            {
+                return null;
+            }
+
+            if (_browsers.TryGetValue(item.Tool.Id, out var existingBrowser))
+            {
+                return existingBrowser;
+            }
+
+            _logger.LogInformation(
+                "Creating WebView2 browser. ToolId={ToolId} ToolTitle={ToolTitle} ToolUrl={ToolUrl}",
+                item.Tool.Id,
+                item.Tool.Title,
+                item.Tool.Url);
+            browser = new WebView2
+            {
+                Visibility = Visibility.Hidden,
+                HorizontalAlignment = HorizontalAlignment.Stretch,
+                VerticalAlignment = VerticalAlignment.Stretch
+            };
+
+            _browsers[item.Tool.Id] = browser;
+            _toolStatuses[item.Tool.Id] = "Loading...";
+            BrowserHost.Children.Add(browser);
+
+            await browser.EnsureCoreWebView2Async(environment);
+            cancellationToken.ThrowIfCancellationRequested();
+            if (_isClosing || !_toolItems.Contains(item))
+            {
+                RemoveAndDisposeBrowser(item.Tool.Id, browser);
+                return null;
+            }
+
+            _logger.LogInformation("WebView2 browser ready. ToolId={ToolId}", item.Tool.Id);
+            browser.CoreWebView2.Settings.AreDefaultContextMenusEnabled = true;
+            browser.CoreWebView2.Settings.AreDevToolsEnabled = true;
+            ApplyBrowserTheme(browser);
+            await browser.CoreWebView2.AddScriptToExecuteOnDocumentCreatedAsync(ExternalBlankLinkScript);
+            cancellationToken.ThrowIfCancellationRequested();
+            browser.CoreWebView2.WebMessageReceived += (_, args) => OnBrowserWebMessageReceived(args);
+            browser.CoreWebView2.NavigationStarting += (_, _) => OnBrowserNavigationStarting(item.Tool);
+            browser.CoreWebView2.NavigationCompleted += async (_, args) => await OnBrowserNavigationCompletedAsync(item, browser, args);
+            browser.CoreWebView2.NewWindowRequested += (_, args) => OnNewWindowRequested(browser, args);
+            browser.CoreWebView2.FaviconChanged += async (_, _) => await CacheFallbackFaviconAsync(item, browser);
+            browser.CoreWebView2.SourceChanged += (_, _) =>
+            {
+                if (IsCurrentTool(item.Tool))
+                {
+                    UpdateNavigationState();
+                }
+            };
+
+            browser.CoreWebView2.Navigate(item.Tool.Url);
+            _logger.LogInformation("WebView2 initial navigation requested. ToolId={ToolId} ToolUrl={ToolUrl}", item.Tool.Id, item.Tool.Url);
+            UpdateBrowserPresentation();
+
             if (IsCurrentTool(item.Tool))
             {
-                UpdateNavigationState();
+                ShowSelectedTool();
             }
-        };
 
-        browser.CoreWebView2.Navigate(item.Tool.Url);
-        _logger.LogInformation("WebView2 initial navigation requested. ToolId={ToolId} ToolUrl={ToolUrl}", item.Tool.Id, item.Tool.Url);
-
-        if (IsCurrentTool(item.Tool))
-        {
-            ShowSelectedTool();
+            return browser;
         }
+        catch
+        {
+            if (browser is not null)
+            {
+                RemoveAndDisposeBrowser(item.Tool.Id, browser);
+            }
+
+            throw;
+        }
+    }
+
+    private void CancelBrowserCreation(string toolId)
+    {
+        if (_browserCreationCancellations.Remove(toolId, out var cancellation))
+        {
+            cancellation.Cancel();
+        }
+
+        _browserCreationTasks.Remove(toolId);
+    }
+
+    private void RemoveAndDisposeBrowser(string toolId, WebView2 browser)
+    {
+        if (_browsers.TryGetValue(toolId, out var registeredBrowser)
+            && ReferenceEquals(registeredBrowser, browser))
+        {
+            _browsers.Remove(toolId);
+        }
+
+        BrowserHost.Children.Remove(browser);
+        if (ReferenceEquals(_resizePreviewBrowser, browser))
+        {
+            if (_resizePreviewPanel is not null)
+            {
+                _resizePreviewPanel.Child = null;
+            }
+
+            _resizePreviewBrowser = null;
+        }
+
+        browser.Dispose();
     }
 
     private void LoadCachedIcons()
@@ -283,6 +426,101 @@ public partial class MainWindow : Window
                 item.Icon = icon;
             }
         }
+    }
+
+    private async Task RefreshMissingIconsAsync()
+    {
+        var refreshTasks = _toolItems
+            .Where(item => item.Icon is null)
+            .Select(RefreshMissingIconAsync)
+            .ToArray();
+
+        if (refreshTasks.Length == 0)
+        {
+            _logger.LogDebug("All tool icons loaded from cache.");
+            return;
+        }
+
+        _logger.LogInformation("Refreshing missing tool icons. MissingIconCount={MissingIconCount}", refreshTasks.Length);
+        await Task.WhenAll(refreshTasks);
+    }
+
+    private async Task RefreshMissingIconAsync(ToolItem item)
+    {
+        if (item.Icon is not null || !TryGetRootFaviconUri(item.Tool, out var faviconUri))
+        {
+            return;
+        }
+
+        var refreshCancellation = CancellationTokenSource.CreateLinkedTokenSource(_lifetimeCancellation.Token);
+        if (_iconRefreshCancellations.Remove(item.Tool.Id, out var previousCancellation))
+        {
+            previousCancellation.Cancel();
+        }
+
+        _iconRefreshCancellations[item.Tool.Id] = refreshCancellation;
+        var gateEntered = false;
+        try
+        {
+            await IconDownloadGate.WaitAsync(refreshCancellation.Token);
+            gateEntered = true;
+            if (item.Icon is not null || _isClosing || !_toolItems.Contains(item))
+            {
+                return;
+            }
+
+            var cached = await TryDownloadAndCacheIconAsync(
+                item,
+                faviconUri.AbsoluteUri,
+                refreshCancellation.Token);
+            _logger.LogDebug(
+                "Missing tool icon refresh completed. ToolId={ToolId} IsCached={IsCached}",
+                item.Tool.Id,
+                cached);
+        }
+        catch (OperationCanceledException) when (refreshCancellation.IsCancellationRequested)
+        {
+        }
+        catch (OutOfMemoryException ex)
+        {
+            _logger.LogWarning(ex, "Rejected tool icon because decoding exhausted memory. ToolId={ToolId}", item.Tool.Id);
+        }
+        finally
+        {
+            if (gateEntered)
+            {
+                IconDownloadGate.Release();
+            }
+
+            if (_iconRefreshCancellations.TryGetValue(item.Tool.Id, out var registeredCancellation)
+                && ReferenceEquals(registeredCancellation, refreshCancellation))
+            {
+                _iconRefreshCancellations.Remove(item.Tool.Id);
+            }
+
+            refreshCancellation.Dispose();
+        }
+    }
+
+    private void CancelIconRefresh(string toolId)
+    {
+        if (_iconRefreshCancellations.Remove(toolId, out var cancellation))
+        {
+            cancellation.Cancel();
+        }
+    }
+
+    private static bool TryGetRootFaviconUri(ToolDefinition tool, out Uri faviconUri)
+    {
+        faviconUri = null!;
+        if (!Uri.TryCreate(tool.Url, UriKind.Absolute, out var pageUri)
+            || (pageUri.Scheme != Uri.UriSchemeHttp && pageUri.Scheme != Uri.UriSchemeHttps))
+        {
+            return false;
+        }
+
+        faviconUri = new Uri(pageUri, "/favicon.ico");
+        return true;
     }
 
     private async Task CacheBestIconAsync(ToolItem item, WebView2 browser)
@@ -310,13 +548,20 @@ public partial class MainWindow : Window
                          .Where(candidate => IsSupportedIconCandidate(candidate.Href))
                          .OrderByDescending(GetIconScore))
             {
-                if (await TryDownloadAndCacheIconAsync(item, candidate.Href))
+                if (await TryDownloadAndCacheIconAsync(item, candidate.Href, _lifetimeCancellation.Token))
                 {
                     return;
                 }
             }
 
             await CacheFallbackFaviconAsync(item, browser);
+        }
+        catch (OperationCanceledException) when (_isClosing)
+        {
+        }
+        catch (OutOfMemoryException ex)
+        {
+            _logger.LogWarning(ex, "Rejected page icon because decoding exhausted memory. ToolId={ToolId}", item.Tool.Id);
         }
         catch
         {
@@ -334,7 +579,11 @@ public partial class MainWindow : Window
         try
         {
             using var faviconStream = await browser.CoreWebView2.GetFaviconAsync(CoreWebView2FaviconImageFormat.Png);
-            await CacheIconStreamAsync(item, faviconStream);
+            await CacheIconStreamAsync(item, faviconStream, _lifetimeCancellation.Token);
+        }
+        catch (OutOfMemoryException ex)
+        {
+            _logger.LogWarning(ex, "Rejected WebView2 favicon because decoding exhausted memory. ToolId={ToolId}", item.Tool.Id);
         }
         catch
         {
@@ -342,18 +591,34 @@ public partial class MainWindow : Window
         }
     }
 
-    private static async Task<bool> TryDownloadAndCacheIconAsync(ToolItem item, string href)
+    private async Task<bool> TryDownloadAndCacheIconAsync(
+        ToolItem item,
+        string href,
+        CancellationToken cancellationToken)
     {
         try
         {
-            using var response = await IconHttpClient.GetAsync(href);
-            if (!response.IsSuccessStatusCode || !IsSupportedContentType(response.Content.Headers.ContentType?.MediaType))
+            using var response = await IconHttpClient.GetAsync(
+                href,
+                HttpCompletionOption.ResponseHeadersRead,
+                cancellationToken);
+            if (!response.IsSuccessStatusCode
+                || !IsSupportedContentType(response.Content.Headers.ContentType?.MediaType)
+                || response.Content.Headers.ContentLength > MaxIconDownloadBytes)
             {
                 return false;
             }
 
-            await using var stream = await response.Content.ReadAsStreamAsync();
-            return await CacheIconStreamAsync(item, stream);
+            await using var stream = await response.Content.ReadAsStreamAsync(cancellationToken);
+            return await CacheIconStreamAsync(item, stream, cancellationToken);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            return false;
+        }
+        catch (OutOfMemoryException)
+        {
+            throw;
         }
         catch
         {
@@ -361,47 +626,105 @@ public partial class MainWindow : Window
         }
     }
 
-    private static async Task<bool> CacheIconStreamAsync(ToolItem item, Stream iconStream)
+    private async Task<bool> CacheIconStreamAsync(
+        ToolItem item,
+        Stream iconStream,
+        CancellationToken cancellationToken)
     {
-        var cachePath = GetIconCachePath(item.Tool);
-        Directory.CreateDirectory(Path.GetDirectoryName(cachePath)!);
-
-        await using var memoryStream = new MemoryStream();
-        await iconStream.CopyToAsync(memoryStream);
-        memoryStream.Position = 0;
-
-        if (!TrySelectIconFrame(memoryStream, out var frame))
+        var cacheLock = GetIconCacheLock(item.Tool.Id);
+        await cacheLock.WaitAsync(cancellationToken);
+        try
         {
-            return false;
-        }
-
-        if (TryGetIconSize(cachePath, out var cachedWidth, out var cachedHeight)
-            && IsPreferredIconSize(cachedWidth, cachedHeight)
-            && !IsPreferredIconSize(frame.PixelWidth, frame.PixelHeight))
-        {
-            if (!TryLoadIcon(cachePath, out var cachedIcon))
+            if (_isClosing || !_toolItems.Contains(item))
             {
                 return false;
             }
 
-            item.Icon = cachedIcon;
+            var cachePath = GetIconCachePath(item.Tool);
+            Directory.CreateDirectory(Path.GetDirectoryName(cachePath)!);
+
+            await using var memoryStream = new MemoryStream();
+            if (!await CopyIconStreamAsync(iconStream, memoryStream, cancellationToken))
+            {
+                return false;
+            }
+
+            memoryStream.Position = 0;
+            if (!TrySelectIconFrame(memoryStream, out var frame))
+            {
+                return false;
+            }
+
+            frame = ScaleIconFrameForCache(frame);
+
+            if (TryGetIconSize(cachePath, out var cachedWidth, out var cachedHeight)
+                && IsPreferredIconSize(cachedWidth, cachedHeight)
+                && !IsPreferredIconSize(frame.PixelWidth, frame.PixelHeight))
+            {
+                if (!TryLoadIcon(cachePath, out var cachedIcon))
+                {
+                    return false;
+                }
+
+                item.Icon = cachedIcon;
+                return true;
+            }
+
+            await using (var fileStream = File.Create(cachePath))
+            {
+                var encoder = new PngBitmapEncoder();
+                encoder.Frames.Add(BitmapFrame.Create(frame));
+                encoder.Save(fileStream);
+            }
+
+            if (!TryLoadIcon(cachePath, out var icon))
+            {
+                return false;
+            }
+
+            item.Icon = icon;
             return true;
         }
-
-        await using (var fileStream = File.Create(cachePath))
+        finally
         {
-            var encoder = new PngBitmapEncoder();
-            encoder.Frames.Add(BitmapFrame.Create(frame));
-            encoder.Save(fileStream);
+            cacheLock.Release();
+        }
+    }
+
+    private SemaphoreSlim GetIconCacheLock(string toolId)
+    {
+        if (!_iconCacheLocks.TryGetValue(toolId, out var cacheLock))
+        {
+            cacheLock = new SemaphoreSlim(1, 1);
+            _iconCacheLocks[toolId] = cacheLock;
         }
 
-        if (!TryLoadIcon(cachePath, out var icon))
-        {
-            return false;
-        }
+        return cacheLock;
+    }
 
-        item.Icon = icon;
-        return true;
+    private static async Task<bool> CopyIconStreamAsync(
+        Stream source,
+        Stream destination,
+        CancellationToken cancellationToken)
+    {
+        var buffer = new byte[81920];
+        var totalBytes = 0;
+        while (true)
+        {
+            var bytesRead = await source.ReadAsync(buffer.AsMemory(), cancellationToken);
+            if (bytesRead == 0)
+            {
+                return true;
+            }
+
+            totalBytes += bytesRead;
+            if (totalBytes > MaxIconDownloadBytes)
+            {
+                return false;
+            }
+
+            await destination.WriteAsync(buffer.AsMemory(0, bytesRead), cancellationToken);
+        }
     }
 
     private static bool TrySelectIconFrame(Stream iconStream, out BitmapSource frame)
@@ -413,14 +736,16 @@ public partial class MainWindow : Window
             var decoder = BitmapDecoder.Create(
                 iconStream,
                 BitmapCreateOptions.PreservePixelFormat,
-                BitmapCacheOption.OnLoad);
+                BitmapCacheOption.None);
 
             var selectedFrame = decoder.Frames
+                .Where(IsSafeIconFrame)
                 .Where(candidate => IsPreferredIconSize(candidate.PixelWidth, candidate.PixelHeight))
                 .OrderBy(candidate => Math.Max(candidate.PixelWidth, candidate.PixelHeight))
                 .ThenBy(candidate => Math.Min(candidate.PixelWidth, candidate.PixelHeight))
                 .FirstOrDefault()
                 ?? decoder.Frames
+                    .Where(IsSafeIconFrame)
                     .OrderByDescending(candidate => Math.Max(candidate.PixelWidth, candidate.PixelHeight))
                     .ThenByDescending(candidate => Math.Min(candidate.PixelWidth, candidate.PixelHeight))
                     .FirstOrDefault();
@@ -433,10 +758,37 @@ public partial class MainWindow : Window
             frame = selectedFrame;
             return true;
         }
+        catch (OutOfMemoryException)
+        {
+            throw;
+        }
         catch
         {
             return false;
         }
+    }
+
+    private static bool IsSafeIconFrame(BitmapSource frame)
+    {
+        return frame.PixelWidth > 0
+            && frame.PixelHeight > 0
+            && frame.PixelWidth <= MaxIconSourceDimension
+            && frame.PixelHeight <= MaxIconSourceDimension
+            && (long)frame.PixelWidth * frame.PixelHeight <= MaxIconSourcePixels;
+    }
+
+    private static BitmapSource ScaleIconFrameForCache(BitmapSource frame)
+    {
+        var largestDimension = Math.Max(frame.PixelWidth, frame.PixelHeight);
+        if (largestDimension <= MaxCachedIconDimension)
+        {
+            return frame;
+        }
+
+        var scale = (double)MaxCachedIconDimension / largestDimension;
+        var scaledFrame = new TransformedBitmap(frame, new ScaleTransform(scale, scale));
+        scaledFrame.Freeze();
+        return scaledFrame;
     }
 
     private static bool TryGetIconSize(string path, out int width, out int height)
@@ -455,10 +807,10 @@ public partial class MainWindow : Window
             var decoder = BitmapDecoder.Create(
                 stream,
                 BitmapCreateOptions.PreservePixelFormat,
-                BitmapCacheOption.OnLoad);
+                BitmapCacheOption.None);
             var frame = decoder.Frames.FirstOrDefault();
 
-            if (frame is null)
+            if (frame is null || !IsSafeIconFrame(frame))
             {
                 return false;
             }
@@ -489,9 +841,25 @@ public partial class MainWindow : Window
         try
         {
             using var stream = File.OpenRead(path);
+            var decoder = BitmapDecoder.Create(
+                stream,
+                BitmapCreateOptions.PreservePixelFormat,
+                BitmapCacheOption.None);
+            var frame = decoder.Frames.FirstOrDefault();
+            if (frame is null || !IsSafeIconFrame(frame))
+            {
+                return false;
+            }
+
+            stream.Position = 0;
             var bitmap = new BitmapImage();
             bitmap.BeginInit();
             bitmap.CacheOption = BitmapCacheOption.OnLoad;
+            if (frame.PixelWidth > PreferredIconFrameSize)
+            {
+                bitmap.DecodePixelWidth = PreferredIconFrameSize;
+            }
+
             bitmap.StreamSource = stream;
             bitmap.EndInit();
             bitmap.Freeze();
@@ -583,15 +951,9 @@ public partial class MainWindow : Window
             $"{safeId}.icon");
     }
 
-    private async void OnToolSelectionChanged(object sender, System.Windows.Controls.SelectionChangedEventArgs e)
-    {
-        await ShowSelectedToolAsync();
-    }
-
     private void OnToolListMouseLeftButtonDown(object sender, MouseButtonEventArgs e)
     {
-        if (FindAncestor<ListBoxItem>(e.OriginalSource as DependencyObject) is not null
-            && !TryGetToolIconHit(e, out _))
+        if (FindAncestor<ListBoxItem>(e.OriginalSource as DependencyObject) is not null)
         {
             e.Handled = true;
         }
@@ -599,26 +961,60 @@ public partial class MainWindow : Window
 
     private async void OnToolListMouseLeftButtonUp(object sender, MouseButtonEventArgs e)
     {
-        if (!TryGetToolIconHit(e, out var item))
+        if (!TryGetToolIconHit(e, out var item) || item is null)
         {
             e.Handled = true;
             return;
         }
 
-        ToolList.SelectedItem = item;
-        await ShowSelectedToolAsync();
-        Expand();
+        await ActivateToolAsync(item);
         e.Handled = true;
     }
 
-    private async Task ShowSelectedToolAsync()
+    private async Task ActivateToolAsync(ToolItem item)
     {
-        if (ToolList.SelectedItem is ToolItem item && !_browsers.ContainsKey(item.Tool.Id))
+        if (_isClosing || !_toolItems.Contains(item))
         {
-            await CreateBrowserAsync(item);
+            return;
+        }
+
+        ToolList.SelectedItem = item;
+        _currentItem = item;
+        if (!_browsers.ContainsKey(item.Tool.Id))
+        {
+            _toolStatuses[item.Tool.Id] = "Starting WebView2...";
         }
 
         ShowSelectedTool();
+        Expand();
+
+        try
+        {
+            await EnsureBrowserAsync(item);
+        }
+        catch (OperationCanceledException)
+        {
+            return;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "WebView2 initialization failed. ToolId={ToolId}", item.Tool.Id);
+            _toolStatuses[item.Tool.Id] = "WebView2 could not start.";
+            if (!IsCurrentTool(item.Tool) || _isClosing)
+            {
+                return;
+            }
+
+            var runtimeHint = ex.GetType().Name.Contains("Runtime", StringComparison.OrdinalIgnoreCase)
+                ? "WebView2 Runtime is missing or unavailable. Install Microsoft Edge WebView2 Runtime, then try again."
+                : "WebView2 could not start.";
+            UrlText.Text = runtimeHint;
+            MessageBox.Show(
+                $"{runtimeHint}\n\n{ex.Message}",
+                "SideDock",
+                MessageBoxButton.OK,
+                MessageBoxImage.Error);
+        }
     }
 
     private void ShowSelectedTool()
@@ -633,15 +1029,74 @@ public partial class MainWindow : Window
         UrlText.Text = GetCurrentUrl();
         _logger.LogDebug("Selected tool shown. ToolId={ToolId}", item.Tool.Id);
 
-        foreach (var (toolId, browser) in _browsers)
-        {
-            browser.Visibility = toolId.Equals(item.Tool.Id, StringComparison.OrdinalIgnoreCase)
-                ? Visibility.Visible
-                : Visibility.Hidden;
-        }
+        UpdateBrowserPresentation();
 
         SetStatus(_toolStatuses.TryGetValue(item.Tool.Id, out var status) ? status : "Waiting for WebView2...");
         UpdateNavigationState();
+    }
+
+    private void ClearToolSelection()
+    {
+        ToolList.SelectedIndex = -1;
+        _currentItem = null;
+        TitleText.Text = "SideDock";
+        UrlText.Text = string.Empty;
+        UpdateBrowserPresentation();
+    }
+
+    private void UpdateBrowserPresentation()
+    {
+        foreach (var (toolId, browser) in _browsers)
+        {
+            if (!ReferenceEquals(browser, _resizePreviewBrowser))
+            {
+                browser.Visibility = _currentItem is not null
+                    && toolId.Equals(_currentItem.Tool.Id, StringComparison.OrdinalIgnoreCase)
+                        ? Visibility.Visible
+                        : Visibility.Hidden;
+            }
+        }
+
+        ApplyBrowserMemoryTargets();
+    }
+
+    private void ApplyBrowserMemoryTargets()
+    {
+        foreach (var (toolId, browser) in _browsers)
+        {
+            if (browser.CoreWebView2 is null)
+            {
+                continue;
+            }
+
+            var isResizePreview = ReferenceEquals(browser, _resizePreviewBrowser);
+            var isContentVisible = !_isContentHiddenForResize || isResizePreview;
+            var isActive = !_isClosing
+                && !_isAutoHiddenForFullscreen
+                && _isExpanded
+                && isContentVisible
+                && _currentItem is not null
+                && toolId.Equals(_currentItem.Tool.Id, StringComparison.OrdinalIgnoreCase);
+            var target = isActive
+                ? CoreWebView2MemoryUsageTargetLevel.Normal
+                : CoreWebView2MemoryUsageTargetLevel.Low;
+
+            try
+            {
+                if (browser.CoreWebView2.MemoryUsageTargetLevel != target)
+                {
+                    browser.CoreWebView2.MemoryUsageTargetLevel = target;
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogDebug(
+                    ex,
+                    "Could not update WebView2 memory target. ToolId={ToolId} Target={Target}",
+                    toolId,
+                    target);
+            }
+        }
     }
 
     private void OnBrowserNavigationStarting(ToolDefinition tool)
@@ -1017,10 +1472,7 @@ public partial class MainWindow : Window
 
         var item = new ToolItem(tool);
         _toolItems.Add(item);
-        await CreateBrowserAsync(item);
-        ToolList.SelectedItem = item;
-        ShowSelectedTool();
-        Expand();
+        await RefreshMissingIconAsync(item);
     }
 
     private void OnRemoveUrlClick(object sender, RoutedEventArgs e)
@@ -1050,11 +1502,11 @@ public partial class MainWindow : Window
             return;
         }
 
-        var removedIndex = ToolList.SelectedIndex;
-        if (_browsers.Remove(item.Tool.Id, out var browser))
+        CancelBrowserCreation(item.Tool.Id);
+        CancelIconRefresh(item.Tool.Id);
+        if (_browsers.TryGetValue(item.Tool.Id, out var browser))
         {
-            BrowserHost.Children.Remove(browser);
-            browser.Dispose();
+            RemoveAndDisposeBrowser(item.Tool.Id, browser);
         }
 
         _toolStatuses.Remove(item.Tool.Id);
@@ -1066,9 +1518,8 @@ public partial class MainWindow : Window
             item.Tool.Title,
             item.Tool.Url);
         _toolItems.Remove(item);
-
-        ToolList.SelectedIndex = Math.Min(removedIndex, _toolItems.Count - 1);
-        ShowSelectedTool();
+        ClearToolSelection();
+        Collapse(force: true, reason: "ToolRemoved");
     }
 
     private void OnAboutClick(object sender, RoutedEventArgs e)
@@ -1130,10 +1581,10 @@ public partial class MainWindow : Window
             return;
         }
 
-        if (_browsers.Remove(_currentItem.Tool.Id, out var browser))
+        CancelBrowserCreation(_currentItem.Tool.Id);
+        if (_browsers.TryGetValue(_currentItem.Tool.Id, out var browser))
         {
-            BrowserHost.Children.Remove(browser);
-            browser.Dispose();
+            RemoveAndDisposeBrowser(_currentItem.Tool.Id, browser);
             _logger.LogInformation("Closed WebView2 browser. ToolId={ToolId}", _currentItem.Tool.Id);
         }
 
@@ -1221,6 +1672,7 @@ public partial class MainWindow : Window
 
         _cursorLeftAt = null;
         _isAutoHiddenForFullscreen = true;
+        ApplyBrowserMemoryTargets();
         _logger.LogInformation("Hiding SideDock for fullscreen app.");
         Hide();
     }
@@ -1235,6 +1687,7 @@ public partial class MainWindow : Window
         _isAutoHiddenForFullscreen = false;
         ShowActivated = false;
         Show();
+        ApplyBrowserMemoryTargets();
         ApplyTopmostState();
 
         var currentWidth = GetCurrentDockWidth();
@@ -1255,6 +1708,7 @@ public partial class MainWindow : Window
         ContentColumn.Width = new GridLength(1, GridUnitType.Star);
         ContentPanel.Visibility = Visibility.Visible;
         ResizeGrip.Visibility = Visibility.Visible;
+        ApplyBrowserMemoryTargets();
         ApplyDockSideLayout();
         ApplyTopmostState();
         _logger.LogInformation("SideDock expanded. Width={Width}", GetCurrentDockWidth());
@@ -1273,6 +1727,7 @@ public partial class MainWindow : Window
         ContentPanel.Visibility = Visibility.Collapsed;
         ResizeGrip.Visibility = Visibility.Collapsed;
         ContentColumn.Width = new GridLength(0);
+        ApplyBrowserMemoryTargets();
         ApplyDockSideLayout();
         ApplyTopmostState();
         _logger.LogInformation("SideDock collapsed. Reason={Reason} Width={Width}", reason, GetCurrentDockWidth());
@@ -1473,6 +1928,7 @@ public partial class MainWindow : Window
         browser.Visibility = Visibility.Visible;
         _resizePreviewPanel.Child = browser;
         _resizePreviewBrowser = browser;
+        ApplyBrowserMemoryTargets();
 
         if (_resizePreviewWindow is not null)
         {
@@ -1498,14 +1954,8 @@ public partial class MainWindow : Window
             BrowserHost.Children.Add(_resizePreviewBrowser);
         }
 
-        foreach (var (toolId, browser) in _browsers)
-        {
-            browser.Visibility = _currentItem is not null && toolId.Equals(_currentItem.Tool.Id, StringComparison.OrdinalIgnoreCase)
-                ? Visibility.Visible
-                : Visibility.Hidden;
-        }
-
         _resizePreviewBrowser = null;
+        UpdateBrowserPresentation();
     }
 
     private void HideContentForResize()
@@ -1517,6 +1967,7 @@ public partial class MainWindow : Window
 
         ContentPanel.Visibility = Visibility.Hidden;
         _isContentHiddenForResize = true;
+        ApplyBrowserMemoryTargets();
     }
 
     private void RestoreContentAfterResize()
@@ -1528,6 +1979,7 @@ public partial class MainWindow : Window
 
         ContentPanel.Visibility = _isExpanded ? Visibility.Visible : Visibility.Collapsed;
         _isContentHiddenForResize = false;
+        ApplyBrowserMemoryTargets();
     }
 
     private double GetScreenXDips(Point windowPoint)
@@ -1672,7 +2124,7 @@ public partial class MainWindow : Window
 
     private void UpdateNavigationState()
     {
-        if (!_areWebViewsReady || _currentItem is null)
+        if (_currentItem is null)
         {
             return;
         }

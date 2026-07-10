@@ -9,9 +9,10 @@ Use this checklist before finishing changes that touch appbar behavior, collapse
 - Collapsed and expanded windows use the intended monitor, not always the primary monitor.
 - Appbar reserved space is registered on the same monitor edge where SideDock is shown.
 - Clicking a site button expands the web panel.
+- Startup leaves every site unselected until a site icon is explicitly clicked.
 - Clicking outside site buttons does not unexpectedly expand the web panel.
 - The app remains topmost.
-- Missing favicons use the default icon and loaded favicons continue to display.
+- Cached favicons display without starting WebView2; missing favicons show `IconKey` while a lightweight background request attempts to cache the site icon.
 
 ## Multi-Monitor and DPI Scaling
 
@@ -24,10 +25,14 @@ Use this checklist before finishing changes that touch appbar behavior, collapse
 
 ## WebView Lifecycle
 
+- Startup creates no WebView2 environment, controls, browser processes, or page navigations.
+- The first explicit site click creates only that site's WebView2 instance, and rapid repeated clicks do not create duplicates.
 - Switching site buttons restores that site's existing page state.
-- Hide collapses the panel without disposing existing WebView instances.
+- Invisible pages use the low-memory target while scripts and network activity continue.
+- Hide collapses the panel and applies the low-memory target without disposing existing WebView instances.
 - Close disposes only the current page and collapses the panel.
-- Selecting a closed site creates a fresh WebView2 instance.
+- Clicking a closed site creates a fresh WebView2 instance.
+- Adding a URL does not select or load it; removing the selected URL clears selection instead of selecting a neighbor.
 - Links that target a new window open externally or navigate as intended by the existing behavior.
 
 ## Pinning and Reserved Space
