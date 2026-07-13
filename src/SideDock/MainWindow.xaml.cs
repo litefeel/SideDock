@@ -93,7 +93,9 @@ public partial class MainWindow : Window
     private readonly Dictionary<string, SemaphoreSlim> _iconCacheLocks = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, CancellationTokenSource> _iconRefreshCancellations = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, string> _toolStatuses = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, List<CoreWebView2DevToolsProtocolEventReceiver>> _networkEventReceivers = new(StringComparer.OrdinalIgnoreCase);
     private readonly CancellationTokenSource _lifetimeCancellation = new();
+    private readonly FailedDomainStore _failedDomainStore;
     private DateTime? _cursorLeftAt;
     private ToolItem? _currentItem;
     private CoreWebView2Environment? _webViewEnvironment;
@@ -119,6 +121,7 @@ public partial class MainWindow : Window
     {
         _settings = settings;
         _logger = AppLogging.CreateLogger<MainWindow>();
+        _failedDomainStore = new FailedDomainStore(AppSettings.FailedDomainsPath, _logger);
 
         InitializeComponent();
 
@@ -362,6 +365,9 @@ public partial class MainWindow : Window
                 }
             };
 
+            await ConfigureNetworkFailureTrackingAsync(item.Tool, browser.CoreWebView2);
+            cancellationToken.ThrowIfCancellationRequested();
+
             browser.CoreWebView2.Navigate(item.Tool.Url);
             _logger.LogInformation("WebView2 initial navigation requested. ToolId={ToolId} ToolUrl={ToolUrl}", item.Tool.Id, item.Tool.Url);
             UpdateBrowserPresentation();
@@ -413,7 +419,113 @@ public partial class MainWindow : Window
             _resizePreviewBrowser = null;
         }
 
+        _networkEventReceivers.Remove(toolId);
+
         browser.Dispose();
+    }
+
+    private async Task ConfigureNetworkFailureTrackingAsync(ToolDefinition tool, CoreWebView2 coreWebView)
+    {
+        var requestUrls = new Dictionary<string, string>(StringComparer.Ordinal);
+        var requestReceiver = coreWebView.GetDevToolsProtocolEventReceiver("Network.requestWillBeSent");
+        var finishedReceiver = coreWebView.GetDevToolsProtocolEventReceiver("Network.loadingFinished");
+        var failedReceiver = coreWebView.GetDevToolsProtocolEventReceiver("Network.loadingFailed");
+
+        requestReceiver.DevToolsProtocolEventReceived += (_, args) =>
+        {
+            try
+            {
+                using var document = JsonDocument.Parse(args.ParameterObjectAsJson);
+                var root = document.RootElement;
+                if (root.TryGetProperty("requestId", out var requestIdElement)
+                    && root.TryGetProperty("request", out var requestElement)
+                    && requestElement.TryGetProperty("url", out var urlElement))
+                {
+                    var requestId = requestIdElement.GetString();
+                    var url = urlElement.GetString();
+                    if (!string.IsNullOrWhiteSpace(requestId) && !string.IsNullOrWhiteSpace(url))
+                    {
+                        requestUrls[requestId] = url;
+                    }
+                }
+            }
+            catch (JsonException ex)
+            {
+                _logger.LogDebug(ex, "Could not parse WebView2 request event. ToolId={ToolId}", tool.Id);
+            }
+        };
+
+        finishedReceiver.DevToolsProtocolEventReceived += (_, args) =>
+        {
+            if (TryGetDevToolsString(args.ParameterObjectAsJson, "requestId", out var requestId))
+            {
+                requestUrls.Remove(requestId);
+            }
+        };
+
+        failedReceiver.DevToolsProtocolEventReceived += (_, args) =>
+            OnNetworkLoadingFailed(tool, requestUrls, args.ParameterObjectAsJson);
+
+        _networkEventReceivers[tool.Id] = [requestReceiver, finishedReceiver, failedReceiver];
+        await coreWebView.CallDevToolsProtocolMethodAsync("Network.enable", "{}");
+        _logger.LogDebug("WebView2 network failure tracking enabled. ToolId={ToolId}", tool.Id);
+    }
+
+    private void OnNetworkLoadingFailed(ToolDefinition tool, Dictionary<string, string> requestUrls, string eventJson)
+    {
+        try
+        {
+            using var document = JsonDocument.Parse(eventJson);
+            var root = document.RootElement;
+            var requestId = root.TryGetProperty("requestId", out var requestIdElement) ? requestIdElement.GetString() : null;
+            var errorText = root.TryGetProperty("errorText", out var errorElement) ? errorElement.GetString() : null;
+            var canceled = root.TryGetProperty("canceled", out var canceledElement) && canceledElement.ValueKind == JsonValueKind.True;
+            var blockedReason = root.TryGetProperty("blockedReason", out var blockedElement) ? blockedElement.GetString() : null;
+
+            if (string.IsNullOrWhiteSpace(requestId) || !requestUrls.Remove(requestId, out var url))
+            {
+                return;
+            }
+
+            if (!FailedDomainStore.IsConnectionFailure(errorText, canceled, blockedReason)
+                || !FailedDomainStore.TryNormalizeHost(url, out var host))
+            {
+                return;
+            }
+
+            var failureCount = _failedDomainStore.Record(host);
+            _logger.LogWarning(
+                "WebView2 network request failed. ToolId={ToolId} Domain={Domain} Url={Url} Error={NetworkError} FailureCount={FailureCount}",
+                tool.Id,
+                host,
+                url,
+                errorText,
+                failureCount);
+        }
+        catch (JsonException ex)
+        {
+            _logger.LogDebug(ex, "Could not parse WebView2 loading failure event. ToolId={ToolId}", tool.Id);
+        }
+    }
+
+    private static bool TryGetDevToolsString(string eventJson, string propertyName, out string value)
+    {
+        value = string.Empty;
+        try
+        {
+            using var document = JsonDocument.Parse(eventJson);
+            if (!document.RootElement.TryGetProperty(propertyName, out var element))
+            {
+                return false;
+            }
+
+            value = element.GetString() ?? string.Empty;
+            return value.Length > 0;
+        }
+        catch (JsonException)
+        {
+            return false;
+        }
     }
 
     private void LoadCachedIcons()
@@ -1561,6 +1673,52 @@ public partial class MainWindow : Window
             _logger.LogWarning(ex, "Could not open logs folder. LogDirectory={LogDirectory}", AppSettings.LogDirectory);
             SetStatus($"Could not open logs folder: {ex.Message}");
         }
+    }
+
+    private void OnOpenFailedDomainsFileClick(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            if (!_failedDomainStore.EnsureFileExists())
+            {
+                SetStatus("Could not create the failed domains file. See logs for details.");
+                return;
+            }
+            Process.Start(new ProcessStartInfo(_failedDomainStore.Path)
+            {
+                UseShellExecute = true
+            });
+            _logger.LogInformation("Opened failed domains file. Path={FailedDomainsPath}", _failedDomainStore.Path);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Could not open failed domains file. Path={FailedDomainsPath}", _failedDomainStore.Path);
+            SetStatus($"Could not open failed domains file: {ex.Message}");
+        }
+    }
+
+    private void OnClearFailedDomainsClick(object sender, RoutedEventArgs e)
+    {
+        var result = MessageBox.Show(
+            this,
+            "Clear all recorded failed domains and their failure counts?",
+            "Clear failed domains",
+            MessageBoxButton.YesNo,
+            MessageBoxImage.Warning,
+            MessageBoxResult.No);
+        if (result != MessageBoxResult.Yes)
+        {
+            return;
+        }
+
+        if (!_failedDomainStore.Clear())
+        {
+            SetStatus("Failed domains were cleared in memory, but the file could not be updated.");
+            return;
+        }
+
+        _logger.LogInformation("Cleared failed domains. Path={FailedDomainsPath}", _failedDomainStore.Path);
+        SetStatus("Failed domains cleared.");
     }
 
     private void OnOpenExternalClick(object sender, RoutedEventArgs e)

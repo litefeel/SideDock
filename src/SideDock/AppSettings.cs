@@ -38,6 +38,8 @@ public sealed class AppSettings
 
     public static string LogDirectory => Path.Combine(UserDataDirectory, "logs");
 
+    public static string FailedDomainsPath => Path.Combine(UserDataDirectory, "failed-domains.txt");
+
     public static AppSettings Load()
     {
         var logger = AppLogging.CreateLogger<AppSettings>();

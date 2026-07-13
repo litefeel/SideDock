@@ -119,4 +119,12 @@ SideDock writes local structured logs to `%LOCALAPPDATA%\SideDock\logs` by defau
 
 Logs use compact JSON lines (`sidedock-.clef`) with daily and size-based rolling. Defaults keep five files with a 2 MiB per-file limit. The logs include appbar, monitor, DPI, WebView lifecycle, startup, settings, and exception diagnostics.
 
-For privacy, logs may include configured tool IDs, titles, and configured tool URLs. They do not record the current page URL after navigation, external URLs opened from pages, WebView message contents, or page content.
+For privacy, logs may include configured tool IDs, titles, configured tool URLs, and URLs of network requests that fail with a recorded connection error. They do not record successful current-page navigation URLs, external URLs opened from pages, WebView message contents, or page content.
+
+## Failed Domains
+
+SideDock records domains whose WebView2 requests fail because of DNS, connection, proxy, tunnel, TLS/certificate, unreachable-network, disconnection, or timeout errors. This covers page navigations and page resources such as APIs, scripts, images, and fonts. HTTP 4xx/5xx responses, canceled requests, and blocked content are not counted.
+
+Counts persist across restarts in `%LOCALAPPDATA%\SideDock\failed-domains.txt`. The UTF-8 file contains one tab-separated `domain<TAB>failure count` entry per line, ordered by descending failure count and then by domain name. Each failed request or retry increments the domain's count.
+
+Use `Open failed domains file` in the settings menu to view the file. Use `Clear failed domains` and confirm the warning to reset all recorded domains and counts.
