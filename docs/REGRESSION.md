@@ -59,6 +59,7 @@ Use this checklist before finishing changes that touch appbar behavior, collapse
 
 ## Installer and Release
 
+- The MSI installs on Windows 11 build 22000 or later and blocks installation on Windows 10.
 - The default MSI includes the .NET runtime.
 - The `no-runtime` MSI is framework-dependent and requires .NET 10 on the target machine.
 - Installer outputs are written under `artifacts\installer`.

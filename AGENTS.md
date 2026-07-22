@@ -2,7 +2,7 @@
 
 ## Project Overview
 
-SideDock is a Windows-only WPF sidebar application inspired by the detached Microsoft Edge sidebar. The main app lives in `src/SideDock` and targets `net10.0-windows`.
+SideDock is a Windows 11-only WPF sidebar application inspired by the detached Microsoft Edge sidebar. The main app lives in `src/SideDock` and targets `net10.0-windows10.0.22000.0`.
 
 The installer is built with WiX from `installer/SideDock.wxs`. Release packaging produces two MSI variants:
 
@@ -11,7 +11,7 @@ The installer is built with WiX from `installer/SideDock.wxs`. Release packaging
 
 ## Environment Requirements
 
-- Windows 10 LTSC 21H2 or Windows 11.
+- Windows 11 build 22000 or later. Windows 10 is not supported.
 - .NET 10 SDK for build, publish, and development.
 - Microsoft Edge WebView2 Runtime on machines running the app.
 - The `no-runtime` MSI requires .NET 10 to already be installed on the target machine.
@@ -146,7 +146,7 @@ Use this release note structure unless the user asks for another format:
 
 ## Requirements
 
-- Windows 10 LTSC 21H2 or Windows 11.
+- Windows 11 build 22000 or later; Windows 10 is not supported.
 - Microsoft Edge WebView2 Runtime.
 - .NET 10 is required only when installing the `no-runtime` MSI.
 ```

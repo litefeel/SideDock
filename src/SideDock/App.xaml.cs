@@ -12,6 +12,17 @@ public partial class App : Application
 
     protected override void OnStartup(StartupEventArgs e)
     {
+        if (!OperatingSystem.IsWindowsVersionAtLeast(10, 0, 22000))
+        {
+            MessageBox.Show(
+                "SideDock requires Windows 11 (build 22000 or later). Windows 10 is not supported.",
+                "SideDock",
+                MessageBoxButton.OK,
+                MessageBoxImage.Error);
+            Shutdown(-1);
+            return;
+        }
+
         AppLogging.InitializeBootstrap();
         _logger = AppLogging.CreateLogger<App>();
         _logger.LogInformation("SideDock startup requested. ArgsCount={ArgsCount}", e.Args.Length);

@@ -10,6 +10,17 @@
     <MediaTemplate EmbedCab="yes" />
     <Icon Id="SideDockIcon" SourceFile="src\SideDock\Assets\SideDock.ico" />
     <Property Id="ARPPRODUCTICON" Value="SideDockIcon" />
+    <Property Id="WINDOWSBUILDNUMBER" Secure="yes">
+      <RegistrySearch
+        Id="WindowsBuildNumberSearch"
+        Root="HKLM"
+        Key="SOFTWARE\Microsoft\Windows NT\CurrentVersion"
+        Name="CurrentBuildNumber"
+        Type="raw" />
+    </Property>
+    <Launch
+      Condition="Installed OR (WINDOWSBUILDNUMBER &gt;= 22000)"
+      Message="SideDock requires Windows 11 (build 22000 or later). Windows 10 is not supported." />
 
     <CustomAction
       Id="LaunchSideDockAfterInstall"

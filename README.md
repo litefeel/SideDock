@@ -1,10 +1,10 @@
 # SideDock
 
-SideDock is a Windows-only source-run sidebar app inspired by the detached Microsoft Edge sidebar.
+SideDock is a Windows 11-only source-run sidebar app inspired by the detached Microsoft Edge sidebar.
 
 ## Requirements
 
-- Windows 10 LTSC 21H2 or Windows 11
+- Windows 11 (build 22000 or later); Windows 10 is not supported
 - .NET 10 SDK
 - Microsoft Edge WebView2 Runtime
 
@@ -64,7 +64,7 @@ Install:
 msiexec /i artifacts\installer\SideDock-0.0.21-win-x64.msi
 ```
 
-The MSI installs SideDock for the current user under `%LOCALAPPDATA%\Programs\SideDock` and creates a Start Menu shortcut. Startup can be enabled or disabled from the app settings menu.
+The MSI requires Windows 11 build 22000 or later. It blocks installation on Windows 10. On a supported system, it installs SideDock for the current user under `%LOCALAPPDATA%\Programs\SideDock` and creates a Start Menu shortcut. Startup can be enabled or disabled from the app settings menu.
 
 Uninstall from Windows Settings under installed apps, or use Programs and Features. Windows Installer removes the files and shortcut.
 
@@ -83,7 +83,7 @@ Release tags must use three numeric version parts, optionally prefixed with `v`,
 
 Open `SideDock.slnx` in Visual Studio 2022 or later. Set `SideDock` as the startup project if it is not selected automatically, restore NuGet packages, then press `F5` to debug or `Ctrl+F5` to run without debugging.
 
-The app targets `net10.0-windows`, so Visual Studio must have the .NET 10 SDK and the .NET desktop development workload installed. The target machine also needs Microsoft Edge WebView2 Runtime.
+The app targets `net10.0-windows10.0.22000.0`, so Visual Studio must have the .NET 10 SDK and the .NET desktop development workload installed. The target machine must run Windows 11 build 22000 or later and have Microsoft Edge WebView2 Runtime.
 
 The sidebar starts as a persistent full-height icon rail on the right edge by default and registers its reserved edge space as a Windows appbar, so maximized windows avoid the SideDock edge. The appbar always shows every configured site button and the settings button, whether the web panel is expanded or hidden. No site is selected at startup. When another application is fullscreen on the same monitor, SideDock automatically hides while keeping its appbar space reserved, avoiding desktop relayout until fullscreen ends. Screenshot capture overlays are ignored so SideDock stays available while taking screenshots. The dock side can be changed to left or right from the settings menu. The rail loads favicons from `%LOCALAPPDATA%\SideDock\Icons`; missing entries show the configured `IconKey` while SideDock makes a lightweight `/favicon.ico` request in the background. Opening a site can replace that fallback with a higher-quality icon from the page.
 
