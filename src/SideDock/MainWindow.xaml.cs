@@ -96,6 +96,7 @@ public partial class MainWindow : Window
     private readonly Dictionary<string, List<CoreWebView2DevToolsProtocolEventReceiver>> _networkEventReceivers = new(StringComparer.OrdinalIgnoreCase);
     private readonly CancellationTokenSource _lifetimeCancellation = new();
     private readonly FailedDomainStore _failedDomainStore;
+    private readonly FailedDomainNotificationService _failedDomainNotificationService;
     private DateTime? _cursorLeftAt;
     private ToolItem? _currentItem;
     private CoreWebView2Environment? _webViewEnvironment;
@@ -124,6 +125,7 @@ public partial class MainWindow : Window
         _failedDomainStore = new FailedDomainStore(AppSettings.FailedDomainsPath, _logger);
 
         InitializeComponent();
+        _failedDomainNotificationService = new FailedDomainNotificationService(Dispatcher, OpenFailedDomainsFile, _logger);
 
         ApplyTheme();
         ApplyStartupSetting();
@@ -186,6 +188,7 @@ public partial class MainWindow : Window
     {
         _logger.LogInformation("Main window closing.");
         _isClosing = true;
+        _failedDomainNotificationService.Dispose();
         _lifetimeCancellation.Cancel();
         foreach (var cancellation in _browserCreationCancellations.Values.ToArray())
         {
@@ -576,14 +579,19 @@ public partial class MainWindow : Window
             return;
         }
 
-        var failureCount = _failedDomainStore.Record(endpoint);
+        var recordResult = _failedDomainStore.Record(endpoint);
         _logger.LogWarning(
             "WebView2 network request failed. ToolId={ToolId} Endpoint={Endpoint} Url={Url} Error={NetworkError} FailureCount={FailureCount}",
             tool.Id,
             endpoint,
             url,
             errorText,
-            failureCount);
+            recordResult.FailureCount);
+
+        if (recordResult.IsNew)
+        {
+            _failedDomainNotificationService.ShowNewDomain(endpoint);
+        }
     }
 
     private static bool TryGetDevToolsString(string eventJson, string propertyName, out string value)
@@ -1754,6 +1762,11 @@ public partial class MainWindow : Window
     }
 
     private void OnOpenFailedDomainsFileClick(object sender, RoutedEventArgs e)
+    {
+        OpenFailedDomainsFile();
+    }
+
+    private void OpenFailedDomainsFile()
     {
         try
         {

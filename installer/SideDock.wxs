@@ -29,8 +29,16 @@
       Execute="immediate"
       Return="asyncNoWait" />
 
+    <CustomAction
+      Id="CleanupNotificationsBeforeUninstall"
+      FileRef="SideDockExe"
+      ExeCommand="--uninstall-notifications"
+      Execute="immediate"
+      Return="ignore" />
+
     <InstallExecuteSequence>
       <Custom Action="LaunchSideDockAfterInstall" After="InstallFinalize" Condition="NOT REMOVE" />
+      <Custom Action="CleanupNotificationsBeforeUninstall" Before="RemoveFiles" Condition="REMOVE~=&quot;ALL&quot; AND NOT UPGRADINGPRODUCTCODE" />
     </InstallExecuteSequence>
 
     <Feature Id="MainFeature" Title="SideDock" Level="1">

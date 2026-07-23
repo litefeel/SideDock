@@ -6,12 +6,23 @@ namespace SideDock;
 public partial class App : Application
 {
     private const string SingleInstanceMutexName = "Local\\SideDock.SingleInstance";
+    private const string UninstallNotificationsArgument = "--uninstall-notifications";
 
     private Mutex? _singleInstanceMutex;
     private ILogger<App> _logger = null!;
 
     protected override void OnStartup(StartupEventArgs e)
     {
+        if (e.Args.Contains(UninstallNotificationsArgument, StringComparer.OrdinalIgnoreCase))
+        {
+            AppLogging.InitializeBootstrap();
+            _logger = AppLogging.CreateLogger<App>();
+            _logger.LogInformation("Notification resource cleanup requested.");
+            FailedDomainNotificationService.Uninstall(_logger);
+            Shutdown();
+            return;
+        }
+
         if (!OperatingSystem.IsWindowsVersionAtLeast(10, 0, 22000))
         {
             MessageBox.Show(

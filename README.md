@@ -127,6 +127,8 @@ SideDock records protocol-qualified domains whose WebView2 requests fail because
 
 Counts persist across restarts in `%LOCALAPPDATA%\SideDock\failed-domains.txt`. The UTF-8 file contains one tab-separated `protocol://domain<TAB>failure count` entry per line, such as `https://example.com<TAB>3` or `ws://example.com<TAB>2`. Ports, paths, queries, and fragments are omitted. Entries are ordered by descending failure count and then by protocol-qualified domain. Each failed request or retry increments that endpoint's count, so different protocols for the same domain are counted separately.
 
+When SideDock records a protocol-qualified domain that is not already in the file, it shows a Windows notification containing that endpoint. Different protocols for the same host notify separately, while repeated failures only increment the existing count. Clicking the notification opens `failed-domains.txt`, including from Notification Center after SideDock has exited. Clearing the failed domains makes a later failure for the same endpoint new again. Windows notification settings can suppress the popup without affecting failure recording.
+
 When upgrading from the previous domain-only format, SideDock clears entries that do not contain a protocol because their original protocol cannot be recovered.
 
 Use `Open failed domains file` in the settings menu to view the file. Use `Clear failed domains` and confirm the warning to reset all recorded domains and counts.

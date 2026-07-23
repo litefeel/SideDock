@@ -5,6 +5,8 @@ using Microsoft.Extensions.Logging;
 
 namespace SideDock;
 
+internal readonly record struct FailedDomainRecordResult(long FailureCount, bool IsNew);
+
 internal sealed class FailedDomainStore
 {
     private readonly object _syncRoot = new();
@@ -68,15 +70,15 @@ internal sealed class FailedDomainStore
         return true;
     }
 
-    public long Record(string endpoint)
+    public FailedDomainRecordResult Record(string endpoint)
     {
         lock (_syncRoot)
         {
-            _counts.TryGetValue(endpoint, out var current);
+            var isNew = !_counts.TryGetValue(endpoint, out var current);
             var updated = current == long.MaxValue ? long.MaxValue : current + 1;
             _counts[endpoint] = updated;
             SaveLocked();
-            return updated;
+            return new FailedDomainRecordResult(updated, isNew);
         }
     }
 

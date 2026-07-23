@@ -66,18 +66,53 @@ public sealed class FailedDomainStoreTests
         store.Record("ws://cdn.example.com");
         store.Record("ws://cdn.example.com");
         store.Record("ws://cdn.example.com");
-        Assert.Equal(7, store.Record("ws://cdn.example.com"));
-        Assert.Equal(1, store.Record("https://cdn.example.com"));
+        Assert.Equal(7, store.Record("ws://cdn.example.com").FailureCount);
+        Assert.Equal(1, store.Record("https://cdn.example.com").FailureCount);
 
         Assert.Equal(
             ["ws://cdn.example.com\t7", "https://api.example.com\t6", "https://cdn.example.com\t1"],
             File.ReadAllLines(path));
 
         var reloaded = new FailedDomainStore(path, NullLogger.Instance);
-        Assert.Equal(7, reloaded.Record("https://api.example.com"));
+        Assert.Equal(7, reloaded.Record("https://api.example.com").FailureCount);
         Assert.Equal(
             ["https://api.example.com\t7", "ws://cdn.example.com\t7", "https://cdn.example.com\t1"],
             File.ReadAllLines(path));
+    }
+
+    [Fact]
+    public void RecordReportsOnlyNewProtocolQualifiedEntries()
+    {
+        using var directory = new TemporaryDirectory();
+        var path = Path.Combine(directory.Path, "failed-domains.txt");
+        var store = new FailedDomainStore(path, NullLogger.Instance);
+
+        Assert.Equal(
+            new FailedDomainRecordResult(1, IsNew: true),
+            store.Record("https://example.com"));
+        Assert.Equal(
+            new FailedDomainRecordResult(2, IsNew: false),
+            store.Record("https://example.com"));
+
+        foreach (var endpoint in new[]
+                 {
+                     "http://example.com",
+                     "ws://example.com",
+                     "wss://example.com"
+                 })
+        {
+            Assert.True(store.Record(endpoint).IsNew);
+        }
+
+        var reloaded = new FailedDomainStore(path, NullLogger.Instance);
+        Assert.Equal(
+            new FailedDomainRecordResult(3, IsNew: false),
+            reloaded.Record("https://example.com"));
+
+        Assert.True(reloaded.Clear());
+        Assert.Equal(
+            new FailedDomainRecordResult(1, IsNew: true),
+            reloaded.Record("https://example.com"));
     }
 
     [Fact]
