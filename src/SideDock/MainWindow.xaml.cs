@@ -430,6 +430,9 @@ public partial class MainWindow : Window
         var requestReceiver = coreWebView.GetDevToolsProtocolEventReceiver("Network.requestWillBeSent");
         var finishedReceiver = coreWebView.GetDevToolsProtocolEventReceiver("Network.loadingFinished");
         var failedReceiver = coreWebView.GetDevToolsProtocolEventReceiver("Network.loadingFailed");
+        var webSocketCreatedReceiver = coreWebView.GetDevToolsProtocolEventReceiver("Network.webSocketCreated");
+        var webSocketFrameErrorReceiver = coreWebView.GetDevToolsProtocolEventReceiver("Network.webSocketFrameError");
+        var webSocketClosedReceiver = coreWebView.GetDevToolsProtocolEventReceiver("Network.webSocketClosed");
 
         requestReceiver.DevToolsProtocolEventReceived += (_, args) =>
         {
@@ -466,7 +469,49 @@ public partial class MainWindow : Window
         failedReceiver.DevToolsProtocolEventReceived += (_, args) =>
             OnNetworkLoadingFailed(tool, requestUrls, args.ParameterObjectAsJson);
 
-        _networkEventReceivers[tool.Id] = [requestReceiver, finishedReceiver, failedReceiver];
+        webSocketCreatedReceiver.DevToolsProtocolEventReceived += (_, args) =>
+        {
+            try
+            {
+                using var document = JsonDocument.Parse(args.ParameterObjectAsJson);
+                var root = document.RootElement;
+                if (root.TryGetProperty("requestId", out var requestIdElement)
+                    && root.TryGetProperty("url", out var urlElement))
+                {
+                    var requestId = requestIdElement.GetString();
+                    var url = urlElement.GetString();
+                    if (!string.IsNullOrWhiteSpace(requestId) && !string.IsNullOrWhiteSpace(url))
+                    {
+                        requestUrls[requestId] = url;
+                    }
+                }
+            }
+            catch (JsonException ex)
+            {
+                _logger.LogDebug(ex, "Could not parse WebView2 WebSocket creation event. ToolId={ToolId}", tool.Id);
+            }
+        };
+
+        webSocketFrameErrorReceiver.DevToolsProtocolEventReceived += (_, args) =>
+            OnWebSocketFrameError(tool, requestUrls, args.ParameterObjectAsJson);
+
+        webSocketClosedReceiver.DevToolsProtocolEventReceived += (_, args) =>
+        {
+            if (TryGetDevToolsString(args.ParameterObjectAsJson, "requestId", out var requestId))
+            {
+                requestUrls.Remove(requestId);
+            }
+        };
+
+        _networkEventReceivers[tool.Id] =
+        [
+            requestReceiver,
+            finishedReceiver,
+            failedReceiver,
+            webSocketCreatedReceiver,
+            webSocketFrameErrorReceiver,
+            webSocketClosedReceiver
+        ];
         await coreWebView.CallDevToolsProtocolMethodAsync("Network.enable", "{}");
         _logger.LogDebug("WebView2 network failure tracking enabled. ToolId={ToolId}", tool.Id);
     }
@@ -487,25 +532,58 @@ public partial class MainWindow : Window
                 return;
             }
 
-            if (!FailedDomainStore.IsConnectionFailure(errorText, canceled, blockedReason)
-                || !FailedDomainStore.TryNormalizeHost(url, out var host))
+            if (!FailedDomainStore.IsConnectionFailure(errorText, canceled, blockedReason))
             {
                 return;
             }
 
-            var failureCount = _failedDomainStore.Record(host);
-            _logger.LogWarning(
-                "WebView2 network request failed. ToolId={ToolId} Domain={Domain} Url={Url} Error={NetworkError} FailureCount={FailureCount}",
-                tool.Id,
-                host,
-                url,
-                errorText,
-                failureCount);
+            RecordNetworkFailure(tool, url, errorText);
         }
         catch (JsonException ex)
         {
             _logger.LogDebug(ex, "Could not parse WebView2 loading failure event. ToolId={ToolId}", tool.Id);
         }
+    }
+
+    private void OnWebSocketFrameError(ToolDefinition tool, Dictionary<string, string> requestUrls, string eventJson)
+    {
+        try
+        {
+            using var document = JsonDocument.Parse(eventJson);
+            var root = document.RootElement;
+            var requestId = root.TryGetProperty("requestId", out var requestIdElement) ? requestIdElement.GetString() : null;
+            var errorMessage = root.TryGetProperty("errorMessage", out var errorElement) ? errorElement.GetString() : null;
+
+            if (string.IsNullOrWhiteSpace(requestId)
+                || !FailedDomainStore.IsConnectionFailure(errorMessage, canceled: false)
+                || !requestUrls.Remove(requestId, out var url))
+            {
+                return;
+            }
+
+            RecordNetworkFailure(tool, url, errorMessage);
+        }
+        catch (JsonException ex)
+        {
+            _logger.LogDebug(ex, "Could not parse WebView2 WebSocket error event. ToolId={ToolId}", tool.Id);
+        }
+    }
+
+    private void RecordNetworkFailure(ToolDefinition tool, string url, string? errorText)
+    {
+        if (!FailedDomainStore.TryNormalizeEndpoint(url, out var endpoint))
+        {
+            return;
+        }
+
+        var failureCount = _failedDomainStore.Record(endpoint);
+        _logger.LogWarning(
+            "WebView2 network request failed. ToolId={ToolId} Endpoint={Endpoint} Url={Url} Error={NetworkError} FailureCount={FailureCount}",
+            tool.Id,
+            endpoint,
+            url,
+            errorText,
+            failureCount);
     }
 
     private static bool TryGetDevToolsString(string eventJson, string propertyName, out string value)

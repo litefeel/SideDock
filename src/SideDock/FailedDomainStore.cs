@@ -43,27 +43,38 @@ internal sealed class FailedDomainStore
             || error.Contains("QUIC_PROTOCOL_ERROR", StringComparison.Ordinal);
     }
 
-    public static bool TryNormalizeHost(string? url, out string host)
+    public static bool TryNormalizeEndpoint(string? url, out string endpoint)
     {
-        host = string.Empty;
+        endpoint = string.Empty;
         if (!Uri.TryCreate(url, UriKind.Absolute, out var uri)
-            || (uri.Scheme != Uri.UriSchemeHttp && uri.Scheme != Uri.UriSchemeHttps)
+            || string.IsNullOrWhiteSpace(uri.Scheme)
             || string.IsNullOrWhiteSpace(uri.Host))
         {
             return false;
         }
 
-        host = uri.IdnHost.TrimEnd('.').ToLowerInvariant();
-        return host.Length > 0;
+        var host = uri.IdnHost.TrimEnd('.').ToLowerInvariant();
+        if (host.Length == 0)
+        {
+            return false;
+        }
+
+        if (uri.HostNameType == UriHostNameType.IPv6)
+        {
+            host = $"[{host.Trim('[', ']')}]";
+        }
+
+        endpoint = $"{uri.Scheme.ToLowerInvariant()}://{host}";
+        return true;
     }
 
-    public long Record(string host)
+    public long Record(string endpoint)
     {
         lock (_syncRoot)
         {
-            _counts.TryGetValue(host, out var current);
+            _counts.TryGetValue(endpoint, out var current);
             var updated = current == long.MaxValue ? long.MaxValue : current + 1;
-            _counts[host] = updated;
+            _counts[endpoint] = updated;
             SaveLocked();
             return updated;
         }
@@ -105,19 +116,31 @@ internal sealed class FailedDomainStore
                     return;
                 }
 
+                var foundLegacyEntry = false;
                 foreach (var line in File.ReadLines(_path))
                 {
                     var parts = line.Split('\t');
+                    if (parts.Length == 2 && !parts[0].Contains("://", StringComparison.Ordinal))
+                    {
+                        foundLegacyEntry = true;
+                        continue;
+                    }
+
                     if (parts.Length != 2
-                        || !TryNormalizeHost($"https://{parts[0].Trim()}/", out var host)
+                        || !TryNormalizeEndpoint(parts[0].Trim(), out var endpoint)
                         || !long.TryParse(parts[1], NumberStyles.None, CultureInfo.InvariantCulture, out var count)
                         || count <= 0)
                     {
                         continue;
                     }
 
-                    _counts.TryGetValue(host, out var existing);
-                    _counts[host] = existing > long.MaxValue - count ? long.MaxValue : existing + count;
+                    _counts.TryGetValue(endpoint, out var existing);
+                    _counts[endpoint] = existing > long.MaxValue - count ? long.MaxValue : existing + count;
+                }
+
+                if (foundLegacyEntry)
+                {
+                    SaveLocked();
                 }
             }
             catch (Exception ex)

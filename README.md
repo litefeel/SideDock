@@ -123,8 +123,10 @@ For privacy, logs may include configured tool IDs, titles, configured tool URLs,
 
 ## Failed Domains
 
-SideDock records domains whose WebView2 requests fail because of DNS, connection, proxy, tunnel, TLS/certificate, unreachable-network, disconnection, or timeout errors. This covers page navigations and page resources such as APIs, scripts, images, and fonts. HTTP 4xx/5xx responses, canceled requests, and blocked content are not counted.
+SideDock records protocol-qualified domains whose WebView2 requests fail because of DNS, connection, proxy, tunnel, TLS/certificate, unreachable-network, disconnection, or timeout errors. This covers page navigations, page resources such as APIs, scripts, images, and fonts, and WebSocket connection failures. HTTP 4xx/5xx responses, canceled requests, and blocked content are not counted.
 
-Counts persist across restarts in `%LOCALAPPDATA%\SideDock\failed-domains.txt`. The UTF-8 file contains one tab-separated `domain<TAB>failure count` entry per line, ordered by descending failure count and then by domain name. Each failed request or retry increments the domain's count.
+Counts persist across restarts in `%LOCALAPPDATA%\SideDock\failed-domains.txt`. The UTF-8 file contains one tab-separated `protocol://domain<TAB>failure count` entry per line, such as `https://example.com<TAB>3` or `ws://example.com<TAB>2`. Ports, paths, queries, and fragments are omitted. Entries are ordered by descending failure count and then by protocol-qualified domain. Each failed request or retry increments that endpoint's count, so different protocols for the same domain are counted separately.
+
+When upgrading from the previous domain-only format, SideDock clears entries that do not contain a protocol because their original protocol cannot be recovered.
 
 Use `Open failed domains file` in the settings menu to view the file. Use `Clear failed domains` and confirm the warning to reset all recorded domains and counts.
