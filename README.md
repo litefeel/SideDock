@@ -35,25 +35,25 @@ scripts\Build-Installer.cmd
 Build a specific installer version:
 
 ```cmd
-scripts\Build-Installer.cmd 0.0.21 win-x64
+scripts\Build-Installer.cmd 0.0.22 win-x64
 ```
 
 Build the smaller framework-dependent installer without the .NET runtime:
 
 ```cmd
-scripts\Build-Installer.cmd 0.0.21 win-x64 no-runtime
+scripts\Build-Installer.cmd 0.0.22 win-x64 no-runtime
 ```
 
 This publishes a self-contained `win-x64` release with `PublishReadyToRun=true`, then builds:
 
 ```text
-artifacts\installer\SideDock-0.0.21-win-x64.msi
+artifacts\installer\SideDock-0.0.22-win-x64.msi
 ```
 
 The no-runtime variant builds:
 
 ```text
-artifacts\installer\SideDock-0.0.21-win-x64-no-runtime.msi
+artifacts\installer\SideDock-0.0.22-win-x64-no-runtime.msi
 ```
 
 WPF does not support .NET NativeAOT, so this project uses ReadyToRun AOT publishing instead of NativeAOT.
@@ -61,7 +61,7 @@ WPF does not support .NET NativeAOT, so this project uses ReadyToRun AOT publish
 Install:
 
 ```cmd
-msiexec /i artifacts\installer\SideDock-0.0.21-win-x64.msi
+msiexec /i artifacts\installer\SideDock-0.0.22-win-x64.msi
 ```
 
 The MSI requires Windows 11 build 22000 or later. It blocks installation on Windows 10. On a supported system, it installs SideDock for the current user under `%LOCALAPPDATA%\Programs\SideDock` and creates a Start Menu shortcut. Startup can be enabled or disabled from the app settings menu.
@@ -70,11 +70,11 @@ Uninstall from Windows Settings under installed apps, or use Programs and Featur
 
 ## Release
 
-Create and publish a GitHub Release with a tag like `v0.0.21`. The `Release MSI` workflow will build and attach both MSI release assets from that tag:
+Create and publish a GitHub Release with a tag like `v0.0.22`. The `Release MSI` workflow will build and attach both MSI release assets from that tag:
 
 ```text
-SideDock-0.0.21-win-x64.msi
-SideDock-0.0.21-win-x64-no-runtime.msi
+SideDock-0.0.22-win-x64.msi
+SideDock-0.0.22-win-x64-no-runtime.msi
 ```
 
 Release tags must use three numeric version parts, optionally prefixed with `v`, because Windows Installer product versions do not support prerelease labels.
