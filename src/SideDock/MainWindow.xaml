@@ -211,6 +211,7 @@
                                     <MenuItem x:Name="DockLeftMenuItem" Header="Left" Tag="Left" IsCheckable="True" Click="OnDockSideMenuItemClick" />
                                     <MenuItem x:Name="DockRightMenuItem" Header="Right" Tag="Right" IsCheckable="True" Click="OnDockSideMenuItemClick" />
                                 </MenuItem>
+                                <MenuItem x:Name="DisplayMenuItem" Header="Display" SubmenuOpened="OnDisplayMenuOpened" />
                                 <MenuItem x:Name="StartWithWindowsMenuItem" Header="Start with Windows" IsCheckable="True" Click="OnStartWithWindowsClick" />
                                 <Separator />
                                 <MenuItem Header="Open logs folder" Click="OnOpenLogsFolderClick" />

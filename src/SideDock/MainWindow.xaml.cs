@@ -117,6 +117,7 @@ public partial class MainWindow : Window
     private bool _isClosing;
     private HwndSource? _hwndSource;
     private AppBarManager? _appBarManager;
+    private DisplayMonitor? _targetDisplay;
 
     public MainWindow(AppSettings settings)
     {
@@ -180,8 +181,15 @@ public partial class MainWindow : Window
 
         _logger.LogInformation("Window source initialized. Hwnd=0x{Hwnd:X}", handle);
         _appBarManager = new AppBarManager(handle, AppLogging.CreateLogger<AppBarManager>());
+        var layout = GetCurrentMonitorLayout();
         var currentWidth = GetCurrentDockWidth();
-        _appBarManager.Register(GetReservedWidth(currentWidth), currentWidth, GetDockWindowHeight(), GetDockSide(), "SourceInitialized");
+        _appBarManager.Register(
+            GetReservedWidth(currentWidth),
+            currentWidth,
+            GetDockWindowHeight(layout),
+            GetDockSide(),
+            layout,
+            "SourceInitialized");
     }
 
     private void OnClosing(object? sender, CancelEventArgs e)
@@ -1427,6 +1435,93 @@ public partial class MainWindow : Window
         UpdateSettingsMenuChecks();
     }
 
+    private void OnDisplayMenuOpened(object sender, RoutedEventArgs e)
+    {
+        RefreshDisplayMenu();
+    }
+
+    private void OnDisplayMenuItemClick(object sender, RoutedEventArgs e)
+    {
+        if (sender is not MenuItem { Tag: string displayId })
+        {
+            return;
+        }
+
+        var handle = _hwndSource?.Handle ?? nint.Zero;
+        var displays = MonitorLayoutProvider.GetActiveDisplays(handle);
+        var selectedDisplay = DisplayTargetResolver.FindById(displays, displayId);
+        if (selectedDisplay is null)
+        {
+            RefreshDisplayMenu();
+            return;
+        }
+
+        SavePreferredDisplay(selectedDisplay);
+        _targetDisplay = selectedDisplay;
+        _logger.LogInformation(
+            "Preferred display selected from settings. DisplayId={DisplayId} DisplayName={DisplayName}",
+            selectedDisplay.DisplayId,
+            selectedDisplay.FriendlyName);
+        DockToConfiguredEdge(GetCurrentDockWidth(), "DisplayChanged");
+        RefreshDisplayMenu();
+    }
+
+    private void RefreshDisplayMenu()
+    {
+        DisplayMenuItem.Items.Clear();
+
+        var handle = _hwndSource?.Handle ?? nint.Zero;
+        var displays = handle == nint.Zero
+            ? Array.Empty<DisplayMonitor>()
+            : MonitorLayoutProvider.GetActiveDisplays(handle);
+        var preferredDisplay = DisplayTargetResolver.FindById(
+            displays,
+            _settings.PreferredDisplayId);
+
+        if (!string.IsNullOrWhiteSpace(_settings.PreferredDisplayId)
+            && preferredDisplay is null)
+        {
+            var rememberedName = string.IsNullOrWhiteSpace(_settings.PreferredDisplayName)
+                ? "display"
+                : _settings.PreferredDisplayName;
+            DisplayMenuItem.Items.Add(new MenuItem
+            {
+                Header = $"Remembered: {rememberedName} (unavailable)",
+                IsEnabled = false
+            });
+
+            if (displays.Count > 0)
+            {
+                DisplayMenuItem.Items.Add(new Separator());
+            }
+        }
+
+        foreach (var display in displays)
+        {
+            var menuItem = new MenuItem
+            {
+                Header = display.MenuLabel,
+                Tag = display.DisplayId,
+                IsCheckable = true,
+                IsChecked = preferredDisplay is not null
+                    && display.DisplayId.Equals(
+                        preferredDisplay.DisplayId,
+                        StringComparison.OrdinalIgnoreCase)
+            };
+            menuItem.Click += OnDisplayMenuItemClick;
+            DisplayMenuItem.Items.Add(menuItem);
+        }
+
+        if (DisplayMenuItem.Items.Count == 0)
+        {
+            DisplayMenuItem.Items.Add(new MenuItem
+            {
+                Header = "No active displays",
+                IsEnabled = false
+            });
+        }
+    }
+
     private void UpdateSettingsMenuChecks()
     {
         var themeMode = GetThemeMode();
@@ -1439,6 +1534,7 @@ public partial class MainWindow : Window
         DockRightMenuItem.IsChecked = dockSide == AppDockSide.Right;
 
         StartWithWindowsMenuItem.IsChecked = _settings.StartWithWindows;
+        RefreshDisplayMenu();
         CurrentVersionMenuItem.Header = $"Version {GetCurrentVersion()}";
     }
 
@@ -1941,7 +2037,14 @@ public partial class MainWindow : Window
 
         var currentWidth = GetCurrentDockWidth();
         _logger.LogInformation("Restoring SideDock after fullscreen app.");
-        _appBarManager?.Register(GetReservedWidth(currentWidth), currentWidth, GetDockWindowHeight(), GetDockSide(), "FullscreenRestore");
+        var layout = GetCurrentMonitorLayout();
+        _appBarManager?.Register(
+            GetReservedWidth(currentWidth),
+            currentWidth,
+            GetDockWindowHeight(layout),
+            GetDockSide(),
+            layout,
+            "FullscreenRestore");
         DockToConfiguredEdge(currentWidth, "FullscreenRestore");
     }
 
@@ -2319,7 +2422,13 @@ public partial class MainWindow : Window
 
         if (_appBarManager is not null)
         {
-            _appBarManager.Apply(GetReservedWidth(clampedWidth), clampedWidth, windowHeight, GetDockSide(), reason);
+            _appBarManager.Apply(
+                GetReservedWidth(clampedWidth),
+                clampedWidth,
+                windowHeight,
+                GetDockSide(),
+                layout,
+                reason);
             return;
         }
 
@@ -2361,7 +2470,77 @@ public partial class MainWindow : Window
 
     private MonitorLayout GetCurrentMonitorLayout()
     {
-        return MonitorLayoutProvider.FromWindow(_hwndSource?.Handle ?? nint.Zero);
+        if (_targetDisplay is not null)
+        {
+            return _targetDisplay.Layout;
+        }
+
+        return ResolveTargetDisplay()?.Layout
+            ?? MonitorLayoutProvider.FromWindow(_hwndSource?.Handle ?? nint.Zero);
+    }
+
+    private DisplayMonitor? ResolveTargetDisplay()
+    {
+        var handle = _hwndSource?.Handle ?? nint.Zero;
+        if (handle == nint.Zero)
+        {
+            return null;
+        }
+
+        var displays = MonitorLayoutProvider.GetActiveDisplays(handle);
+        if (displays.Count == 0)
+        {
+            _targetDisplay = null;
+            return null;
+        }
+
+        var currentMonitor = MonitorLayoutProvider.GetMonitorFromWindow(
+            handle,
+            MonitorLayoutProvider.MonitorDefaultToNearest);
+        var resolution = DisplayTargetResolver.Resolve(
+            displays,
+            _settings.PreferredDisplayId,
+            currentMonitor);
+        var previousDisplayId = _targetDisplay?.DisplayId;
+        _targetDisplay = resolution.Monitor;
+
+        if (resolution.ShouldPersistPreference)
+        {
+            SavePreferredDisplay(_targetDisplay);
+        }
+
+        if (!string.Equals(previousDisplayId, _targetDisplay.DisplayId, StringComparison.OrdinalIgnoreCase))
+        {
+            var preferredAvailable = DisplayTargetResolver.FindById(
+                displays,
+                _settings.PreferredDisplayId) is not null;
+            _logger.LogInformation(
+                "Target display resolved. DisplayId={DisplayId} DisplayName={DisplayName} PreferredDisplayId={PreferredDisplayId} PreferredAvailable={PreferredAvailable} IsTemporaryFallback={IsTemporaryFallback}",
+                _targetDisplay.DisplayId,
+                _targetDisplay.FriendlyName,
+                _settings.PreferredDisplayId,
+                preferredAvailable,
+                !preferredAvailable && !string.IsNullOrWhiteSpace(_settings.PreferredDisplayId));
+        }
+
+        return _targetDisplay;
+    }
+
+    private void SavePreferredDisplay(DisplayMonitor display)
+    {
+        if (string.Equals(_settings.PreferredDisplayId, display.DisplayId, StringComparison.OrdinalIgnoreCase)
+            && string.Equals(_settings.PreferredDisplayName, display.FriendlyName, StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        _settings.PreferredDisplayId = display.DisplayId;
+        _settings.PreferredDisplayName = display.FriendlyName;
+        AppSettings.Save(_settings);
+        _logger.LogInformation(
+            "Preferred display saved. DisplayId={DisplayId} DisplayName={DisplayName}",
+            display.DisplayId,
+            display.FriendlyName);
     }
 
     private Rect GetWindowScreenRect()
@@ -2819,7 +2998,11 @@ public partial class MainWindow : Window
             if (wParam.ToInt32() == AbnPosChanged)
             {
                 _logger.LogInformation("Received appbar position changed notification.");
-                Dispatcher.BeginInvoke(() => _appBarManager.Refresh("AppBarPosChanged"));
+                Dispatcher.BeginInvoke(() =>
+                {
+                    ResolveTargetDisplay();
+                    _appBarManager.Refresh(GetCurrentMonitorLayout(), "AppBarPosChanged");
+                });
             }
             else if (wParam.ToInt32() == AbnFullscreenApp)
             {
@@ -2838,6 +3021,7 @@ public partial class MainWindow : Window
             {
                 ApplyTheme();
                 ApplyBrowserThemes();
+                ResolveTargetDisplay();
                 DockToConfiguredEdge(GetCurrentDockWidth(), "DisplayOrDpiChanged");
             });
         }

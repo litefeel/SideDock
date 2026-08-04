@@ -33,12 +33,18 @@ internal sealed class AppBarManager
 
     public uint CallbackMessage => _callbackMessage;
 
-    public void Register(double reservedWidthDips, double windowWidthDips, double windowHeightDips, AppDockSide dockSide, string reason)
+    public void Register(
+        double reservedWidthDips,
+        double windowWidthDips,
+        double windowHeightDips,
+        AppDockSide dockSide,
+        MonitorLayout layout,
+        string reason)
     {
         if (_isRegistered)
         {
             _logger.LogInformation("Appbar already registered. Applying current layout. Reason={Reason}", reason);
-            Apply(reservedWidthDips, windowWidthDips, windowHeightDips, dockSide, reason);
+            Apply(reservedWidthDips, windowWidthDips, windowHeightDips, dockSide, layout, reason);
             return;
         }
 
@@ -52,10 +58,16 @@ internal sealed class AppBarManager
             _hwnd,
             _callbackMessage,
             (ulong)result);
-        Apply(reservedWidthDips, windowWidthDips, windowHeightDips, dockSide, reason);
+        Apply(reservedWidthDips, windowWidthDips, windowHeightDips, dockSide, layout, reason);
     }
 
-    public void Apply(double reservedWidthDips, double windowWidthDips, double windowHeightDips, AppDockSide dockSide, string reason)
+    public void Apply(
+        double reservedWidthDips,
+        double windowWidthDips,
+        double windowHeightDips,
+        AppDockSide dockSide,
+        MonitorLayout layout,
+        string reason)
     {
         _reservedWidthDips = reservedWidthDips;
         _windowWidthDips = windowWidthDips;
@@ -67,7 +79,6 @@ internal sealed class AppBarManager
             return;
         }
 
-        var layout = MonitorLayoutProvider.FromWindow(_hwnd);
         var monitor = layout.MonitorPixels;
         var reservedWidthPixels = Math.Max(1, layout.DipsToPixels(reservedWidthDips));
         var windowWidthPixels = Math.Max(reservedWidthPixels, layout.DipsToPixels(windowWidthDips));
@@ -178,10 +189,10 @@ internal sealed class AppBarManager
         }
     }
 
-    public void Refresh(string reason)
+    public void Refresh(MonitorLayout layout, string reason)
     {
         _logger.LogInformation("Refreshing appbar. Reason={Reason}", reason);
-        Apply(_reservedWidthDips, _windowWidthDips, _windowHeightDips, _dockSide, reason);
+        Apply(_reservedWidthDips, _windowWidthDips, _windowHeightDips, _dockSide, layout, reason);
     }
 
     public void Unregister(string reason)

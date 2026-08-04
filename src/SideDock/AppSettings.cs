@@ -23,6 +23,8 @@ public sealed class AppSettings
     public bool StartWithWindows { get; set; } = false;
     public string ThemeMode { get; set; } = nameof(AppThemeMode.System);
     public string DockSide { get; set; } = nameof(AppDockSide.Right);
+    public string? PreferredDisplayId { get; set; }
+    public string? PreferredDisplayName { get; set; }
     public string LogLevel { get; set; } = DefaultLogLevel;
     public long LogFileSizeLimitBytes { get; set; } = DefaultLogFileSizeLimitBytes;
     public int LogRetainedFileCount { get; set; } = DefaultLogRetainedFileCount;

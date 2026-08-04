@@ -28,6 +28,28 @@ public sealed class AppSettingsTests
         Assert.Equal(AppSettings.DefaultLogLevel, settings.LogLevel);
         Assert.Equal(AppSettings.DefaultLogFileSizeLimitBytes, settings.LogFileSizeLimitBytes);
         Assert.Equal(AppSettings.DefaultLogRetainedFileCount, settings.LogRetainedFileCount);
+        Assert.Null(settings.PreferredDisplayId);
+        Assert.Null(settings.PreferredDisplayName);
+    }
+
+    [Fact]
+    public void PreferredDisplaySettingsRoundTrip()
+    {
+        var original = new AppSettings
+        {
+            PreferredDisplayId = @"pnp:MONITOR\DEL1234\instance",
+            PreferredDisplayName = "DELL U2720Q",
+            Tools =
+            [
+                new ToolDefinition("tool", "Tool", "https://example.com/", "EX", true)
+            ]
+        };
+
+        var json = JsonSerializer.Serialize(original);
+        var restored = JsonSerializer.Deserialize<AppSettings>(json)!;
+
+        Assert.Equal(original.PreferredDisplayId, restored.PreferredDisplayId);
+        Assert.Equal(original.PreferredDisplayName, restored.PreferredDisplayName);
     }
 
     [Fact]
