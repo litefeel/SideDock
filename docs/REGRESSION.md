@@ -37,7 +37,7 @@ Use this checklist before finishing changes that touch appbar behavior, collapse
 
 ## Pinning and Reserved Space
 
-- With pin enabled, the expanded web panel registers appbar space so maximized windows avoid the full expanded width.
+- With pin enabled, the expanded web panel registers its full visible width as appbar space while the transparent resize grip overlays the adjacent work area without exposing a desktop gap.
 - With pin disabled, only the icon rail reserves appbar space and the expanded panel overlays other windows.
 - Collapsing or closing from pinned mode restores the expected reserved width.
 - Changing dock side updates appbar registration and window position consistently.

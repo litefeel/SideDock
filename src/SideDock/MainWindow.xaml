@@ -178,7 +178,7 @@
         <Grid x:Name="ShellGrid"
               Background="Transparent">
             <Grid.ColumnDefinitions>
-                <ColumnDefinition x:Name="ResizeColumn" Width="18" />
+                <ColumnDefinition x:Name="ResizeColumn" Width="8" />
                 <ColumnDefinition x:Name="ContentColumn" Width="*" />
                 <ColumnDefinition x:Name="RailColumn" Width="48" />
             </Grid.ColumnDefinitions>

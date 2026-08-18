@@ -12,10 +12,15 @@ internal static class DockLayoutCalculator
         return Math.Clamp(width, minExpandedWidth, maxExpandedWidth);
     }
 
-    public static double GetReservedWidth(bool isExpanded, bool isPinned, double windowWidth, double collapsedWidth)
+    public static double GetReservedWidth(
+        bool isExpanded,
+        bool isPinned,
+        double windowWidth,
+        double collapsedWidth,
+        double resizeGripWidth)
     {
         return isExpanded && isPinned
-            ? windowWidth
+            ? Math.Max(collapsedWidth, windowWidth - Math.Max(0, resizeGripWidth))
             : collapsedWidth;
     }
 

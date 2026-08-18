@@ -1552,7 +1552,7 @@ public partial class MainWindow : Window
     {
         var dockSide = GetDockSide();
         var railWidth = _settings.CollapsedWidth;
-        var resizeWidth = _isExpanded ? 18 : 0;
+        var resizeWidth = _isExpanded ? 8 : 0;
 
         ExpandedRailPanel.Visibility = Visibility.Visible;
         RailBorder.CornerRadius = new CornerRadius(0);
@@ -2384,7 +2384,7 @@ public partial class MainWindow : Window
     {
         return ResizeGrip.ActualWidth > 0
             ? ResizeGrip.ActualWidth
-            : 18;
+            : 8;
     }
 
     private Rect GetCurrentMonitorBoundsDips()
@@ -2827,7 +2827,8 @@ public partial class MainWindow : Window
             _isExpanded,
             _isPinned,
             windowWidth,
-            _settings.CollapsedWidth);
+            _settings.CollapsedWidth,
+            GetResizeGripWidth());
     }
 
     private double GetCurrentDockWidth()

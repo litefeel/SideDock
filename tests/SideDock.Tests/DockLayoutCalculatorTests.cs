@@ -25,11 +25,35 @@ public sealed class DockLayoutCalculatorTests
     }
 
     [Fact]
-    public void ReservedWidthExpandsOnlyWhenPinned()
+    public void ReservedWidthExpandsOnlyWhenPinnedAndExcludesResizeGrip()
     {
-        Assert.Equal(48, DockLayoutCalculator.GetReservedWidth(isExpanded: false, isPinned: false, windowWidth: 430, collapsedWidth: 48));
-        Assert.Equal(48, DockLayoutCalculator.GetReservedWidth(isExpanded: true, isPinned: false, windowWidth: 430, collapsedWidth: 48));
-        Assert.Equal(430, DockLayoutCalculator.GetReservedWidth(isExpanded: true, isPinned: true, windowWidth: 430, collapsedWidth: 48));
+        Assert.Equal(48, DockLayoutCalculator.GetReservedWidth(isExpanded: false, isPinned: false, windowWidth: 430, collapsedWidth: 48, resizeGripWidth: 8));
+        Assert.Equal(48, DockLayoutCalculator.GetReservedWidth(isExpanded: true, isPinned: false, windowWidth: 430, collapsedWidth: 48, resizeGripWidth: 8));
+        Assert.Equal(422, DockLayoutCalculator.GetReservedWidth(isExpanded: true, isPinned: true, windowWidth: 430, collapsedWidth: 48, resizeGripWidth: 8));
+    }
+
+    [Theory]
+    [InlineData(96u)]
+    [InlineData(120u)]
+    [InlineData(144u)]
+    public void PinnedReservedWidthExcludesPhysicalResizeGripAtScaledDpi(uint dpi)
+    {
+        var layout = new MonitorLayout(
+            new NativeRect(0, 0, 2560, 1440),
+            new NativeRect(0, 0, 2560, 1400),
+            dpi);
+        var windowWidth = 430d;
+        var resizeGripWidth = 8d;
+        var reservedWidth = DockLayoutCalculator.GetReservedWidth(
+            isExpanded: true,
+            isPinned: true,
+            windowWidth,
+            collapsedWidth: 48,
+            resizeGripWidth);
+
+        Assert.Equal(
+            layout.DipsToPixels(resizeGripWidth),
+            layout.DipsToPixels(windowWidth) - layout.DipsToPixels(reservedWidth));
     }
 
     [Fact]
@@ -79,9 +103,9 @@ public sealed class DockLayoutCalculatorTests
             resizeContentFixedEdge: 48,
             resizeAnchorEdge: 0,
             pendingResizeWidth: 430,
-            gripWidth: 18);
+            gripWidth: 8);
         Assert.Equal(48, left.Left);
-        Assert.Equal(364, left.Width);
+        Assert.Equal(374, left.Width);
 
         var right = DockLayoutCalculator.GetResizePreviewLayout(
             AppDockSide.Right,
@@ -89,8 +113,8 @@ public sealed class DockLayoutCalculatorTests
             resizeContentFixedEdge: 1872,
             resizeAnchorEdge: 1920,
             pendingResizeWidth: 430,
-            gripWidth: 18);
-        Assert.Equal(1508, right.Left);
-        Assert.Equal(364, right.Width);
+            gripWidth: 8);
+        Assert.Equal(1498, right.Left);
+        Assert.Equal(374, right.Width);
     }
 }
