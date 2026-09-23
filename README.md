@@ -95,7 +95,7 @@ The expanded width is capped dynamically at the current screen width minus the p
 
 The settings menu supports `Dark`, `Light`, and `System` theme modes. `Dark` and `Light` also set the embedded pages' preferred color scheme; `System` follows the Windows app theme preference.
 
-Each activated site gets its own WebView2 instance, so switching icons restores that site's existing page immediately. Invisible pages use WebView2's low-memory target while their scripts and network connections continue running. The hide button collapses the panel and applies the low-memory target without disposing existing pages. The close button disposes the current page and collapses the panel; clicking that site again creates a fresh WebView2 instance.
+Each activated site gets its own WebView2 instance, so switching icons restores that site's existing page immediately. All created pages keep WebView2's normal memory target, including inactive pages and pages hidden by collapsing the panel, fullscreen apps, or resizing. Keeping inactive pages in normal memory mode may use more memory. The hide button collapses the panel without disposing existing pages. The close button disposes the current page and collapses the panel; clicking that site again creates a fresh WebView2 instance.
 
 ## Configure Tools
 

@@ -358,6 +358,7 @@ public partial class MainWindow : Window
             }
 
             _logger.LogInformation("WebView2 browser ready. ToolId={ToolId}", item.Tool.Id);
+            browser.CoreWebView2.MemoryUsageTargetLevel = CoreWebView2MemoryUsageTargetLevel.Normal;
             browser.CoreWebView2.Settings.AreDefaultContextMenusEnabled = true;
             browser.CoreWebView2.Settings.AreDevToolsEnabled = true;
             ApplyBrowserTheme(browser);
@@ -1262,47 +1263,6 @@ public partial class MainWindow : Window
                         : Visibility.Hidden;
             }
         }
-
-        ApplyBrowserMemoryTargets();
-    }
-
-    private void ApplyBrowserMemoryTargets()
-    {
-        foreach (var (toolId, browser) in _browsers)
-        {
-            if (browser.CoreWebView2 is null)
-            {
-                continue;
-            }
-
-            var isResizePreview = ReferenceEquals(browser, _resizePreviewBrowser);
-            var isContentVisible = !_isContentHiddenForResize || isResizePreview;
-            var isActive = !_isClosing
-                && !_isAutoHiddenForFullscreen
-                && _isExpanded
-                && isContentVisible
-                && _currentItem is not null
-                && toolId.Equals(_currentItem.Tool.Id, StringComparison.OrdinalIgnoreCase);
-            var target = isActive
-                ? CoreWebView2MemoryUsageTargetLevel.Normal
-                : CoreWebView2MemoryUsageTargetLevel.Low;
-
-            try
-            {
-                if (browser.CoreWebView2.MemoryUsageTargetLevel != target)
-                {
-                    browser.CoreWebView2.MemoryUsageTargetLevel = target;
-                }
-            }
-            catch (Exception ex)
-            {
-                _logger.LogDebug(
-                    ex,
-                    "Could not update WebView2 memory target. ToolId={ToolId} Target={Target}",
-                    toolId,
-                    target);
-            }
-        }
     }
 
     private void OnBrowserNavigationStarting(ToolDefinition tool)
@@ -2017,7 +1977,6 @@ public partial class MainWindow : Window
 
         _cursorLeftAt = null;
         _isAutoHiddenForFullscreen = true;
-        ApplyBrowserMemoryTargets();
         _logger.LogInformation("Hiding SideDock for fullscreen app.");
         Hide();
     }
@@ -2032,7 +1991,6 @@ public partial class MainWindow : Window
         _isAutoHiddenForFullscreen = false;
         ShowActivated = false;
         Show();
-        ApplyBrowserMemoryTargets();
         ApplyTopmostState();
 
         var currentWidth = GetCurrentDockWidth();
@@ -2060,7 +2018,6 @@ public partial class MainWindow : Window
         ContentColumn.Width = new GridLength(1, GridUnitType.Star);
         ContentPanel.Visibility = Visibility.Visible;
         ResizeGrip.Visibility = Visibility.Visible;
-        ApplyBrowserMemoryTargets();
         ApplyDockSideLayout();
         ApplyTopmostState();
         _logger.LogInformation("SideDock expanded. Width={Width}", GetCurrentDockWidth());
@@ -2079,7 +2036,6 @@ public partial class MainWindow : Window
         ContentPanel.Visibility = Visibility.Collapsed;
         ResizeGrip.Visibility = Visibility.Collapsed;
         ContentColumn.Width = new GridLength(0);
-        ApplyBrowserMemoryTargets();
         ApplyDockSideLayout();
         ApplyTopmostState();
         _logger.LogInformation("SideDock collapsed. Reason={Reason} Width={Width}", reason, GetCurrentDockWidth());
@@ -2280,7 +2236,6 @@ public partial class MainWindow : Window
         browser.Visibility = Visibility.Visible;
         _resizePreviewPanel.Child = browser;
         _resizePreviewBrowser = browser;
-        ApplyBrowserMemoryTargets();
 
         if (_resizePreviewWindow is not null)
         {
@@ -2319,7 +2274,6 @@ public partial class MainWindow : Window
 
         ContentPanel.Visibility = Visibility.Hidden;
         _isContentHiddenForResize = true;
-        ApplyBrowserMemoryTargets();
     }
 
     private void RestoreContentAfterResize()
@@ -2331,7 +2285,6 @@ public partial class MainWindow : Window
 
         ContentPanel.Visibility = _isExpanded ? Visibility.Visible : Visibility.Collapsed;
         _isContentHiddenForResize = false;
-        ApplyBrowserMemoryTargets();
     }
 
     private double GetScreenXDips(Point windowPoint)

@@ -28,8 +28,8 @@ Use this checklist before finishing changes that touch appbar behavior, collapse
 - Startup creates no WebView2 environment, controls, browser processes, or page navigations.
 - The first explicit site click creates only that site's WebView2 instance, and rapid repeated clicks do not create duplicates.
 - Switching site buttons restores that site's existing page state.
-- Invisible pages use the low-memory target while scripts and network activity continue.
-- Hide collapses the panel and applies the low-memory target without disposing existing WebView instances.
+- All created pages keep the normal memory target when switching sites, collapsing or expanding the panel, hiding or restoring for fullscreen apps, and starting or ending resize.
+- Hide collapses the panel without disposing existing WebView instances.
 - Close disposes only the current page and collapses the panel.
 - Clicking a closed site creates a fresh WebView2 instance.
 - Adding a URL does not select or load it; removing the selected URL clears selection instead of selecting a neighbor.
