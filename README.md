@@ -121,7 +121,9 @@ SideDock writes local structured logs to `%LOCALAPPDATA%\SideDock\logs` by defau
 
 Logs use compact JSON lines (`sidedock-.clef`) with daily and size-based rolling. Defaults keep five files with a 2 MiB per-file limit. The logs include appbar, monitor, DPI, WebView lifecycle, startup, settings, and exception diagnostics.
 
-For privacy, logs may include configured tool IDs, titles, configured tool URLs, and URLs of network requests that fail with a recorded connection error. They do not record successful current-page navigation URLs, external URLs opened from pages, WebView message contents, or page content.
+Icon diagnostics are recorded at the default `Information` level. Filter by `ToolId` and `IconRefreshId` to follow one refresh; `IconTrigger` identifies startup cache loading, missing-icon downloads, successful page navigation, or favicon changes. Events include page icon candidates and selection scores, unsupported candidates, HTTP status/content type/byte limits, timeouts and exceptions, decoded frame dimensions, cache writes, and the reason an existing icon is retained. An `IsCached=true` result means a usable cache is available; it can also mean the existing cache was retained, so check the cache decision event to distinguish it from an update.
+
+For privacy, logs may include configured tool IDs, titles, configured tool URLs, and URLs of network requests that fail with a recorded connection error. Icon URI fields include the HTTP(S) host and path with credentials, query strings, and fragments removed; inline icon data is omitted. They do not record successful current-page navigation URLs, external URLs opened from pages, WebView message contents, or page content.
 
 ## Failed Domains
 

@@ -368,7 +368,7 @@ public partial class MainWindow : Window
             browser.CoreWebView2.NavigationStarting += (_, _) => OnBrowserNavigationStarting(item.Tool);
             browser.CoreWebView2.NavigationCompleted += async (_, args) => await OnBrowserNavigationCompletedAsync(item, browser, args);
             browser.CoreWebView2.NewWindowRequested += (_, args) => OnNewWindowRequested(browser, args);
-            browser.CoreWebView2.FaviconChanged += async (_, _) => await CacheFallbackFaviconAsync(item, browser);
+            browser.CoreWebView2.FaviconChanged += async (_, _) => await CacheFallbackFaviconAsync(item, browser, "FaviconChanged");
             browser.CoreWebView2.SourceChanged += (_, _) =>
             {
                 if (IsCurrentTool(item.Tool))
@@ -627,10 +627,16 @@ public partial class MainWindow : Window
     {
         foreach (var item in _toolItems)
         {
+            using var scope = BeginIconRefreshScope(item, "StartupCache");
             var cachePath = GetIconCachePath(item.Tool);
             if (TryLoadIcon(cachePath, out var icon))
             {
                 item.Icon = icon;
+                _logger.LogInformation("Tool icon loaded from cache. CachePath={CachePath}", cachePath);
+            }
+            else
+            {
+                _logger.LogInformation("Tool icon cache unavailable; keeping configured fallback. CachePath={CachePath}", cachePath);
             }
         }
     }
@@ -644,7 +650,7 @@ public partial class MainWindow : Window
 
         if (refreshTasks.Length == 0)
         {
-            _logger.LogDebug("All tool icons loaded from cache.");
+            _logger.LogInformation("Startup icon download skipped because all tool icons loaded from cache. ToolCount={ToolCount}", _toolItems.Count);
             return;
         }
 
@@ -654,11 +660,20 @@ public partial class MainWindow : Window
 
     private async Task RefreshMissingIconAsync(ToolItem item)
     {
-        if (item.Icon is not null || !TryGetRootFaviconUri(item.Tool, out var faviconUri))
+        using var scope = BeginIconRefreshScope(item, "MissingIcon");
+        if (item.Icon is not null)
         {
+            _logger.LogInformation("Missing icon refresh skipped because an icon is already loaded.");
             return;
         }
 
+        if (!TryGetRootFaviconUri(item.Tool, out var faviconUri))
+        {
+            _logger.LogInformation("Missing icon refresh skipped because the tool URL is not HTTP or HTTPS.");
+            return;
+        }
+
+        _logger.LogInformation("Missing icon refresh started.");
         var refreshCancellation = CancellationTokenSource.CreateLinkedTokenSource(_lifetimeCancellation.Token);
         if (_iconRefreshCancellations.Remove(item.Tool.Id, out var previousCancellation))
         {
@@ -673,6 +688,9 @@ public partial class MainWindow : Window
             gateEntered = true;
             if (item.Icon is not null || _isClosing || !_toolItems.Contains(item))
             {
+                _logger.LogInformation(
+                    "Missing icon refresh skipped after waiting. HasIcon={HasIcon} IsClosing={IsClosing} IsToolPresent={IsToolPresent}",
+                    item.HasIcon, _isClosing, _toolItems.Contains(item));
                 return;
             }
 
@@ -680,13 +698,14 @@ public partial class MainWindow : Window
                 item,
                 faviconUri.AbsoluteUri,
                 refreshCancellation.Token);
-            _logger.LogDebug(
+            _logger.LogInformation(
                 "Missing tool icon refresh completed. ToolId={ToolId} IsCached={IsCached}",
                 item.Tool.Id,
                 cached);
         }
         catch (OperationCanceledException) when (refreshCancellation.IsCancellationRequested)
         {
+            _logger.LogInformation("Missing icon refresh canceled.");
         }
         catch (OutOfMemoryException ex)
         {
@@ -732,11 +751,14 @@ public partial class MainWindow : Window
 
     private async Task CacheBestIconAsync(ToolItem item, WebView2 browser)
     {
+        using var scope = BeginIconRefreshScope(item, "NavigationCompleted");
         if (browser.CoreWebView2 is null)
         {
+            _logger.LogInformation("Page icon refresh skipped because WebView2 is unavailable.");
             return;
         }
 
+        _logger.LogInformation("Page icon refresh started.");
         try
         {
             var script = """
@@ -750,6 +772,15 @@ public partial class MainWindow : Window
                 """;
             var json = await browser.CoreWebView2.ExecuteScriptAsync(script);
             var candidates = JsonSerializer.Deserialize<List<IconCandidate>>(json, JsonOptions) ?? [];
+            _logger.LogInformation("Page icon candidates discovered. CandidateCount={CandidateCount}", candidates.Count);
+            for (var index = 0; index < candidates.Count; index++)
+            {
+                var candidate = candidates[index];
+                _logger.LogInformation(
+                    "Page icon candidate evaluated. CandidateIndex={CandidateIndex} IconUri={IconUri} Rel={Rel} DeclaredSizes={DeclaredSizes} Score={Score} IsSupported={IsSupported}",
+                    index, GetIconLogUri(candidate.Href), candidate.Rel, candidate.Sizes,
+                    GetIconScore(candidate), IsSupportedIconCandidate(candidate.Href));
+            }
 
             foreach (var candidate in candidates
                          .Where(candidate => IsSupportedIconCandidate(candidate.Href))
@@ -757,45 +788,93 @@ public partial class MainWindow : Window
             {
                 if (await TryDownloadAndCacheIconAsync(item, candidate.Href, _lifetimeCancellation.Token))
                 {
+                    _logger.LogInformation("Page icon refresh completed with a usable candidate. IconUri={IconUri}", GetIconLogUri(candidate.Href));
                     return;
                 }
             }
 
+            _logger.LogInformation("No page icon candidate was usable; trying WebView2 favicon.");
             await CacheFallbackFaviconAsync(item, browser);
         }
         catch (OperationCanceledException) when (_isClosing)
         {
+            _logger.LogInformation("Page icon refresh canceled because the window is closing.");
         }
         catch (OutOfMemoryException ex)
         {
             _logger.LogWarning(ex, "Rejected page icon because decoding exhausted memory. ToolId={ToolId}", item.Tool.Id);
         }
-        catch
+        catch (Exception ex)
         {
+            _logger.LogWarning(ex, "Page icon refresh failed; trying WebView2 favicon.");
             await CacheFallbackFaviconAsync(item, browser);
         }
     }
 
-    private async Task CacheFallbackFaviconAsync(ToolItem item, WebView2 browser)
+    private async Task CacheFallbackFaviconAsync(ToolItem item, WebView2 browser, string? trigger = null)
     {
+        using var refreshScope = trigger is null ? null : BeginIconRefreshScope(item, trigger);
         if (browser.CoreWebView2 is null || string.IsNullOrWhiteSpace(browser.CoreWebView2.FaviconUri))
         {
+            _logger.LogInformation("WebView2 favicon refresh skipped because the browser or favicon URI is unavailable.");
             return;
         }
 
+        using var uriScope = _logger.BeginScope(new Dictionary<string, object?>
+        {
+            ["IconUri"] = GetIconLogUri(browser.CoreWebView2.FaviconUri)
+        });
+        _logger.LogInformation("WebView2 favicon refresh started.");
         try
         {
             using var faviconStream = await browser.CoreWebView2.GetFaviconAsync(CoreWebView2FaviconImageFormat.Png);
-            await CacheIconStreamAsync(item, faviconStream, _lifetimeCancellation.Token);
+            var cached = await CacheIconStreamAsync(item, faviconStream, _lifetimeCancellation.Token);
+            _logger.LogInformation("WebView2 favicon refresh completed. IsCached={IsCached}", cached);
         }
         catch (OutOfMemoryException ex)
         {
             _logger.LogWarning(ex, "Rejected WebView2 favicon because decoding exhausted memory. ToolId={ToolId}", item.Tool.Id);
         }
-        catch
+        catch (OperationCanceledException) when (_lifetimeCancellation.IsCancellationRequested)
         {
-            // Keep the default icon when a site does not expose a usable favicon.
+            _logger.LogInformation("WebView2 favicon refresh canceled.");
         }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "WebView2 favicon refresh failed; keeping the current icon.");
+        }
+    }
+
+    private IDisposable? BeginIconRefreshScope(ToolItem item, string trigger)
+    {
+        return _logger.BeginScope(new Dictionary<string, object?>
+        {
+            ["ToolId"] = item.Tool.Id,
+            ["IconTrigger"] = trigger,
+            ["IconRefreshId"] = Guid.NewGuid().ToString("N")
+        });
+    }
+
+    private static string GetIconLogUri(string href)
+    {
+        if (!Uri.TryCreate(href, UriKind.Absolute, out var uri))
+        {
+            return "[invalid URI]";
+        }
+
+        if (uri.Scheme != Uri.UriSchemeHttp && uri.Scheme != Uri.UriSchemeHttps)
+        {
+            return $"{uri.Scheme}:[omitted]";
+        }
+
+        var sanitizedUri = new UriBuilder(uri)
+        {
+            UserName = string.Empty,
+            Password = string.Empty,
+            Query = string.Empty,
+            Fragment = string.Empty
+        }.Uri;
+        return sanitizedUri.GetLeftPart(UriPartial.Path);
     }
 
     private async Task<bool> TryDownloadAndCacheIconAsync(
@@ -803,32 +882,55 @@ public partial class MainWindow : Window
         string href,
         CancellationToken cancellationToken)
     {
+        using var scope = _logger.BeginScope(new Dictionary<string, object?>
+        {
+            ["IconUri"] = GetIconLogUri(href)
+        });
+        var stopwatch = Stopwatch.StartNew();
+        _logger.LogInformation("Icon download started.");
         try
         {
             using var response = await IconHttpClient.GetAsync(
                 href,
                 HttpCompletionOption.ResponseHeadersRead,
                 cancellationToken);
-            if (!response.IsSuccessStatusCode
-                || !IsSupportedContentType(response.Content.Headers.ContentType?.MediaType)
-                || response.Content.Headers.ContentLength > MaxIconDownloadBytes)
+            var contentType = response.Content.Headers.ContentType?.MediaType;
+            var contentLength = response.Content.Headers.ContentLength;
+            var rejectionReason = !response.IsSuccessStatusCode ? "HttpStatus"
+                : !IsSupportedContentType(contentType) ? "UnsupportedContentType"
+                : contentLength > MaxIconDownloadBytes ? "ContentLengthLimit"
+                : null;
+            _logger.LogInformation(
+                "Icon download response received. ResponseUri={ResponseUri} StatusCode={StatusCode} ContentType={ContentType} ContentLength={ContentLength} ElapsedMs={ElapsedMs} RejectionReason={RejectionReason}",
+                GetIconLogUri(response.RequestMessage?.RequestUri?.AbsoluteUri ?? href),
+                (int)response.StatusCode, contentType, contentLength, stopwatch.ElapsedMilliseconds, rejectionReason);
+            if (rejectionReason is not null)
             {
                 return false;
             }
 
             await using var stream = await response.Content.ReadAsStreamAsync(cancellationToken);
-            return await CacheIconStreamAsync(item, stream, cancellationToken);
+            var cached = await CacheIconStreamAsync(item, stream, cancellationToken);
+            _logger.LogInformation("Icon download completed. IsCached={IsCached} ElapsedMs={ElapsedMs}", cached, stopwatch.ElapsedMilliseconds);
+            return cached;
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
+            _logger.LogInformation("Icon download canceled. ElapsedMs={ElapsedMs}", stopwatch.ElapsedMilliseconds);
+            return false;
+        }
+        catch (OperationCanceledException ex)
+        {
+            _logger.LogWarning(ex, "Icon download timed out. TimeoutMs={TimeoutMs} ElapsedMs={ElapsedMs}", IconHttpClient.Timeout.TotalMilliseconds, stopwatch.ElapsedMilliseconds);
             return false;
         }
         catch (OutOfMemoryException)
         {
             throw;
         }
-        catch
+        catch (Exception ex)
         {
+            _logger.LogWarning(ex, "Icon download or cache update failed. ElapsedMs={ElapsedMs}", stopwatch.ElapsedMilliseconds);
             return false;
         }
     }
@@ -844,6 +946,7 @@ public partial class MainWindow : Window
         {
             if (_isClosing || !_toolItems.Contains(item))
             {
+                _logger.LogInformation("Icon cache update skipped. IsClosing={IsClosing} IsToolPresent={IsToolPresent}", _isClosing, _toolItems.Contains(item));
                 return false;
             }
 
@@ -853,21 +956,31 @@ public partial class MainWindow : Window
             await using var memoryStream = new MemoryStream();
             if (!await CopyIconStreamAsync(iconStream, memoryStream, cancellationToken))
             {
+                _logger.LogInformation("Icon rejected because the stream exceeds the byte limit. MaxIconDownloadBytes={MaxIconDownloadBytes}", MaxIconDownloadBytes);
                 return false;
             }
 
+            _logger.LogInformation("Icon stream received. DownloadedBytes={DownloadedBytes}", memoryStream.Length);
             memoryStream.Position = 0;
             if (!TrySelectIconFrame(memoryStream, out var frame))
             {
                 return false;
             }
 
+            var sourceWidth = frame.PixelWidth;
+            var sourceHeight = frame.PixelHeight;
             frame = ScaleIconFrameForCache(frame);
+            _logger.LogInformation(
+                "Icon frame selected for cache. SourceWidth={SourceWidth} SourceHeight={SourceHeight} NewWidth={NewWidth} NewHeight={NewHeight}",
+                sourceWidth, sourceHeight, frame.PixelWidth, frame.PixelHeight);
 
             if (TryGetIconSize(cachePath, out var cachedWidth, out var cachedHeight)
                 && IsPreferredIconSize(cachedWidth, cachedHeight)
                 && !IsPreferredIconSize(frame.PixelWidth, frame.PixelHeight))
             {
+                _logger.LogInformation(
+                    "Keeping existing icon cache because the new icon is below the preferred size. CachePath={CachePath} CachedWidth={CachedWidth} CachedHeight={CachedHeight} NewWidth={NewWidth} NewHeight={NewHeight} PreferredIconFrameSize={PreferredIconFrameSize}",
+                    cachePath, cachedWidth, cachedHeight, frame.PixelWidth, frame.PixelHeight, PreferredIconFrameSize);
                 if (!TryLoadIcon(cachePath, out var cachedIcon))
                 {
                     return false;
@@ -877,6 +990,9 @@ public partial class MainWindow : Window
                 return true;
             }
 
+            _logger.LogInformation(
+                "Writing icon cache. CachePath={CachePath} CachedWidth={CachedWidth} CachedHeight={CachedHeight} NewWidth={NewWidth} NewHeight={NewHeight}",
+                cachePath, cachedWidth, cachedHeight, frame.PixelWidth, frame.PixelHeight);
             await using (var fileStream = File.Create(cachePath))
             {
                 var encoder = new PngBitmapEncoder();
@@ -890,6 +1006,7 @@ public partial class MainWindow : Window
             }
 
             item.Icon = icon;
+            _logger.LogInformation("Icon cache updated and applied. CachePath={CachePath}", cachePath);
             return true;
         }
         finally
@@ -934,7 +1051,7 @@ public partial class MainWindow : Window
         }
     }
 
-    private static bool TrySelectIconFrame(Stream iconStream, out BitmapSource frame)
+    private bool TrySelectIconFrame(Stream iconStream, out BitmapSource frame)
     {
         frame = null!;
 
@@ -944,6 +1061,15 @@ public partial class MainWindow : Window
                 iconStream,
                 BitmapCreateOptions.PreservePixelFormat,
                 BitmapCacheOption.None);
+
+            _logger.LogInformation(
+                "Icon frames decoded. Frames={@Frames}",
+                decoder.Frames.Select(candidate => new
+                {
+                    Width = candidate.PixelWidth,
+                    Height = candidate.PixelHeight,
+                    IsSafe = IsSafeIconFrame(candidate)
+                }).ToArray());
 
             var selectedFrame = decoder.Frames
                 .Where(IsSafeIconFrame)
@@ -959,6 +1085,9 @@ public partial class MainWindow : Window
 
             if (selectedFrame is null)
             {
+                _logger.LogInformation(
+                    "Icon rejected because no frame meets the safety limits. MaxIconSourceDimension={MaxIconSourceDimension} MaxIconSourcePixels={MaxIconSourcePixels}",
+                    MaxIconSourceDimension, MaxIconSourcePixels);
                 return false;
             }
 
@@ -969,8 +1098,9 @@ public partial class MainWindow : Window
         {
             throw;
         }
-        catch
+        catch (Exception ex)
         {
+            _logger.LogWarning(ex, "Icon decoding failed.");
             return false;
         }
     }
@@ -998,7 +1128,7 @@ public partial class MainWindow : Window
         return scaledFrame;
     }
 
-    private static bool TryGetIconSize(string path, out int width, out int height)
+    private bool TryGetIconSize(string path, out int width, out int height)
     {
         width = 0;
         height = 0;
@@ -1019,6 +1149,9 @@ public partial class MainWindow : Window
 
             if (frame is null || !IsSafeIconFrame(frame))
             {
+                _logger.LogWarning(
+                    "Cached icon size rejected because its frame is absent or unsafe. CachePath={CachePath} Width={Width} Height={Height}",
+                    path, frame?.PixelWidth, frame?.PixelHeight);
                 return false;
             }
 
@@ -1026,8 +1159,9 @@ public partial class MainWindow : Window
             height = frame.PixelHeight;
             return true;
         }
-        catch
+        catch (Exception ex)
         {
+            _logger.LogWarning(ex, "Reading cached icon size failed. CachePath={CachePath}", path);
             return false;
         }
     }
@@ -1037,11 +1171,12 @@ public partial class MainWindow : Window
         return width >= PreferredIconFrameSize && height >= PreferredIconFrameSize;
     }
 
-    private static bool TryLoadIcon(string path, out BitmapImage? icon)
+    private bool TryLoadIcon(string path, out BitmapImage? icon)
     {
         icon = null;
         if (!File.Exists(path))
         {
+            _logger.LogInformation("Icon cache file is missing. CachePath={CachePath}", path);
             return false;
         }
 
@@ -1055,9 +1190,15 @@ public partial class MainWindow : Window
             var frame = decoder.Frames.FirstOrDefault();
             if (frame is null || !IsSafeIconFrame(frame))
             {
+                _logger.LogWarning(
+                    "Cached icon load rejected because its frame is absent or unsafe. CachePath={CachePath} Width={Width} Height={Height}",
+                    path, frame?.PixelWidth, frame?.PixelHeight);
                 return false;
             }
 
+            _logger.LogInformation(
+                "Loading cached icon. CachePath={CachePath} CachedWidth={CachedWidth} CachedHeight={CachedHeight}",
+                path, frame.PixelWidth, frame.PixelHeight);
             stream.Position = 0;
             var bitmap = new BitmapImage();
             bitmap.BeginInit();
@@ -1073,8 +1214,9 @@ public partial class MainWindow : Window
             icon = bitmap;
             return true;
         }
-        catch
+        catch (Exception ex)
         {
+            _logger.LogWarning(ex, "Loading cached icon failed. CachePath={CachePath}", path);
             return false;
         }
     }
