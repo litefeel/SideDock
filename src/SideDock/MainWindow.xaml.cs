@@ -62,24 +62,26 @@ public partial class MainWindow : Window
 
             window.__sideDockExternalBlankLinkHandlerInstalled = true;
 
-            document.addEventListener('click', event => {
-                if (event.defaultPrevented || event.button !== 0) {
+            window.addEventListener('click', event => {
+                if (event.button !== 0) {
                     return;
                 }
 
                 const element = event.target instanceof Element ? event.target : event.target?.parentElement;
                 const anchor = element?.closest?.('a[target]');
                 const target = anchor?.getAttribute('target')?.trim().toLowerCase();
-                if (!anchor || (target !== '_blank' && target !== '_new') || !anchor.href) {
+                if (!anchor || (target !== '_blank' && target !== '_new')
+                    || !/^https?:$/.test(anchor.protocol) || !window.chrome?.webview) {
                     return;
                 }
 
-                window.chrome?.webview?.postMessage({
+                event.preventDefault();
+                event.stopImmediatePropagation();
+                window.chrome.webview.postMessage({
                     type: 'sideDock.openExternalBlankLink',
                     href: anchor.href
                 });
-                event.preventDefault();
-            });
+            }, true);
         })();
         """;
 
@@ -367,7 +369,7 @@ public partial class MainWindow : Window
             browser.CoreWebView2.WebMessageReceived += (_, args) => OnBrowserWebMessageReceived(args);
             browser.CoreWebView2.NavigationStarting += (_, _) => OnBrowserNavigationStarting(item.Tool);
             browser.CoreWebView2.NavigationCompleted += async (_, args) => await OnBrowserNavigationCompletedAsync(item, browser, args);
-            browser.CoreWebView2.NewWindowRequested += (_, args) => OnNewWindowRequested(browser, args);
+            browser.CoreWebView2.NewWindowRequested += (_, args) => OnNewWindowRequested(item.Tool, args);
             browser.CoreWebView2.FaviconChanged += async (_, _) => await CacheFallbackFaviconAsync(item, browser, "FaviconChanged");
             browser.CoreWebView2.SourceChanged += (_, _) =>
             {
@@ -1440,12 +1442,17 @@ public partial class MainWindow : Window
         SetStatus(_toolStatuses[item.Tool.Id]);
     }
 
-    private static void OnNewWindowRequested(WebView2 browser, CoreWebView2NewWindowRequestedEventArgs e)
+    private void OnNewWindowRequested(ToolDefinition tool, CoreWebView2NewWindowRequestedEventArgs e)
     {
         e.Handled = true;
-        if (!string.IsNullOrWhiteSpace(e.Uri))
+        if (TryGetExternalHttpUrl(e.Uri, out var url))
         {
-            browser.CoreWebView2.Navigate(e.Uri);
+            _logger.LogInformation("Opening new-window request in the external browser. ToolId={ToolId} IsUserInitiated={IsUserInitiated}", tool.Id, e.IsUserInitiated);
+            OpenExternal(url);
+        }
+        else
+        {
+            _logger.LogInformation("New-window request suppressed because its URI is not HTTP or HTTPS. ToolId={ToolId}", tool.Id);
         }
     }
 
@@ -1453,11 +1460,12 @@ public partial class MainWindow : Window
     {
         if (TryGetExternalBlankLinkUrl(e.WebMessageAsJson, out var url))
         {
+            _logger.LogInformation("Opening intercepted new-window link in the external browser.");
             OpenExternal(url);
         }
     }
 
-    private static bool TryGetExternalBlankLinkUrl(string json, out string url)
+    internal static bool TryGetExternalBlankLinkUrl(string json, out string url)
     {
         url = string.Empty;
 
@@ -1476,20 +1484,25 @@ public partial class MainWindow : Window
                 return false;
             }
 
-            var href = hrefElement.GetString();
-            if (!Uri.TryCreate(href, UriKind.Absolute, out var uri)
-                || (uri.Scheme != Uri.UriSchemeHttp && uri.Scheme != Uri.UriSchemeHttps))
-            {
-                return false;
-            }
-
-            url = uri.AbsoluteUri;
-            return true;
+            return TryGetExternalHttpUrl(hrefElement.GetString(), out url);
         }
         catch (JsonException)
         {
             return false;
         }
+    }
+
+    internal static bool TryGetExternalHttpUrl(string? href, out string url)
+    {
+        url = string.Empty;
+        if (!Uri.TryCreate(href, UriKind.Absolute, out var uri)
+            || (uri.Scheme != Uri.UriSchemeHttp && uri.Scheme != Uri.UriSchemeHttps))
+        {
+            return false;
+        }
+
+        url = uri.AbsoluteUri;
+        return true;
     }
 
     private void OnSettingsClick(object sender, RoutedEventArgs e)

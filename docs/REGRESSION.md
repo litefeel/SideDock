@@ -33,7 +33,9 @@ Use this checklist before finishing changes that touch appbar behavior, collapse
 - Close disposes only the current page and collapses the panel.
 - Clicking a closed site creates a fresh WebView2 instance.
 - Adding a URL does not select or load it; removing the selected URL clears selection instead of selecting a neighbor.
-- Links that target a new window open externally or navigate as intended by the existing behavior.
+- HTTP(S) links targeting `_blank` or `_new`, including citation links handled by page scripts, open once in the default external browser without replacing the current SideDock page.
+- JavaScript `window.open` HTTP(S) requests open externally; non-HTTP(S) new-window requests are suppressed.
+- Ordinary links targeting the current page, including ChatGPT conversation links, still navigate inside SideDock.
 
 ## Pinning and Reserved Space
 

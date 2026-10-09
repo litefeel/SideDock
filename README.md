@@ -89,6 +89,8 @@ The sidebar starts as a persistent full-height icon rail on the right edge by de
 
 Clicking a site button selects it, creates its WebView2 instance on first use, and expands the web panel. SideDock does not initialize WebView2 or load any configured page before that first explicit click. Adding a URL leaves it unselected, and removing the selected URL returns the rail to its unselected state. The app is always topmost. The expanded toolbar contains only open externally, pin, hide, and close-page buttons. Pin is shared across all sites.
 
+HTTP(S) links targeting a new window, including citation links and JavaScript `window.open` requests, open in the default external browser and keep the current SideDock page in place. Ordinary links targeting the current page continue to navigate inside SideDock. New-window requests for other URI schemes are suppressed.
+
 When pin is enabled, the expanded web panel is also registered as appbar space, so maximized windows avoid the full expanded width. When pin is disabled, only the icon rail reserves desktop space; the expanded web panel overlays other windows.
 
 The expanded width is capped dynamically at the current screen width minus the persistent icon rail width. Dragging the resize grip saves the expanded width to `%LOCALAPPDATA%\SideDock\appsettings.json`, and the next app launch uses that saved width.
