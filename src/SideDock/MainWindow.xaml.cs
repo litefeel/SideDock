@@ -29,10 +29,10 @@ public partial class MainWindow : Window
     private const int AbnPosChanged = 0x00000001;
     private const int AbnFullscreenApp = 0x00000002;
     private const int DisplayIconSize = 24;
-    private const int PreferredIconFrameSize = 48;
+    private const int PreferredIconFrameSize = IconImagePolicy.PreferredSize;
     private const int MaxCachedIconDimension = 256;
-    private const int MaxIconSourceDimension = 1024;
-    private const long MaxIconSourcePixels = 1024 * 1024;
+    private const int MaxIconSourceDimension = IconImagePolicy.MaxSourceDimension;
+    private const long MaxIconSourcePixels = IconImagePolicy.MaxSourcePixels;
     private const int MaxIconDownloadBytes = 2 * 1024 * 1024;
     private const int GaRoot = 2;
     private const int DwmwaExtendedFrameBounds = 9;
@@ -172,7 +172,7 @@ public partial class MainWindow : Window
         DockToConfiguredEdge(GetCurrentDockWidth(), "Loaded");
         _cursorTimer.Start();
         _logger.LogInformation("WebView2 initialization deferred until a tool is activated.");
-        await RefreshMissingIconsAsync();
+        await RefreshLowQualityIconsAsync();
     }
 
     private void OnSourceInitialized(object? sender, EventArgs e)
@@ -643,39 +643,41 @@ public partial class MainWindow : Window
         }
     }
 
-    private async Task RefreshMissingIconsAsync()
+    private static bool HasPreferredIcon(ToolItem item) => IconImagePolicy.HasPreferredSize(item.Icon as BitmapSource);
+
+    private async Task RefreshLowQualityIconsAsync()
     {
         var refreshTasks = _toolItems
-            .Where(item => item.Icon is null)
-            .Select(RefreshMissingIconAsync)
+            .Where(item => !HasPreferredIcon(item))
+            .Select(RefreshRootIconAsync)
             .ToArray();
 
         if (refreshTasks.Length == 0)
         {
-            _logger.LogInformation("Startup icon download skipped because all tool icons loaded from cache. ToolCount={ToolCount}", _toolItems.Count);
+            _logger.LogInformation("Startup icon download skipped because all tool icons meet the preferred size. ToolCount={ToolCount}", _toolItems.Count);
             return;
         }
 
-        _logger.LogInformation("Refreshing missing tool icons. MissingIconCount={MissingIconCount}", refreshTasks.Length);
+        _logger.LogInformation("Refreshing missing or low-resolution tool icons. RefreshIconCount={RefreshIconCount}", refreshTasks.Length);
         await Task.WhenAll(refreshTasks);
     }
 
-    private async Task RefreshMissingIconAsync(ToolItem item)
+    private async Task RefreshRootIconAsync(ToolItem item)
     {
-        using var scope = BeginIconRefreshScope(item, "MissingIcon");
-        if (item.Icon is not null)
+        using var scope = BeginIconRefreshScope(item, "RootFavicon");
+        if (HasPreferredIcon(item))
         {
-            _logger.LogInformation("Missing icon refresh skipped because an icon is already loaded.");
+            _logger.LogInformation("Root favicon refresh skipped because the loaded icon meets the preferred size.");
             return;
         }
 
         if (!TryGetRootFaviconUri(item.Tool, out var faviconUri))
         {
-            _logger.LogInformation("Missing icon refresh skipped because the tool URL is not HTTP or HTTPS.");
+            _logger.LogInformation("Root favicon refresh skipped because the tool URL is not HTTP or HTTPS.");
             return;
         }
 
-        _logger.LogInformation("Missing icon refresh started.");
+        _logger.LogInformation("Root favicon refresh started.");
         var refreshCancellation = CancellationTokenSource.CreateLinkedTokenSource(_lifetimeCancellation.Token);
         if (_iconRefreshCancellations.Remove(item.Tool.Id, out var previousCancellation))
         {
@@ -688,11 +690,11 @@ public partial class MainWindow : Window
         {
             await IconDownloadGate.WaitAsync(refreshCancellation.Token);
             gateEntered = true;
-            if (item.Icon is not null || _isClosing || !_toolItems.Contains(item))
+            if (HasPreferredIcon(item) || _isClosing || !_toolItems.Contains(item))
             {
                 _logger.LogInformation(
-                    "Missing icon refresh skipped after waiting. HasIcon={HasIcon} IsClosing={IsClosing} IsToolPresent={IsToolPresent}",
-                    item.HasIcon, _isClosing, _toolItems.Contains(item));
+                    "Root favicon refresh skipped after waiting. HasPreferredIcon={HasPreferredIcon} IsClosing={IsClosing} IsToolPresent={IsToolPresent}",
+                    HasPreferredIcon(item), _isClosing, _toolItems.Contains(item));
                 return;
             }
 
@@ -701,13 +703,13 @@ public partial class MainWindow : Window
                 faviconUri.AbsoluteUri,
                 refreshCancellation.Token);
             _logger.LogInformation(
-                "Missing tool icon refresh completed. ToolId={ToolId} IsCached={IsCached}",
+                "Root favicon refresh completed. ToolId={ToolId} IsCached={IsCached}",
                 item.Tool.Id,
                 cached);
         }
         catch (OperationCanceledException) when (refreshCancellation.IsCancellationRequested)
         {
-            _logger.LogInformation("Missing icon refresh canceled.");
+            _logger.LogInformation("Root favicon refresh canceled.");
         }
         catch (OutOfMemoryException ex)
         {
@@ -788,14 +790,26 @@ public partial class MainWindow : Window
                          .Where(candidate => IsSupportedIconCandidate(candidate.Href))
                          .OrderByDescending(GetIconScore))
             {
-                if (await TryDownloadAndCacheIconAsync(item, candidate.Href, _lifetimeCancellation.Token))
+                if (await TryDownloadAndCacheIconAsync(item, candidate.Href, _lifetimeCancellation.Token)
+                    && HasPreferredIcon(item))
                 {
-                    _logger.LogInformation("Page icon refresh completed with a usable candidate. IconUri={IconUri}", GetIconLogUri(candidate.Href));
+                    _logger.LogInformation("Page icon refresh completed with a high-resolution candidate. IconUri={IconUri}", GetIconLogUri(candidate.Href));
                     return;
                 }
             }
 
-            _logger.LogInformation("No page icon candidate was usable; trying WebView2 favicon.");
+            await RefreshRootIconAsync(item);
+            if (!HasPreferredIcon(item))
+            {
+                await CacheBrowserRootIconAsync(item, browser);
+            }
+
+            if (HasPreferredIcon(item))
+            {
+                return;
+            }
+
+            _logger.LogInformation("No high-resolution icon was available; trying WebView2 favicon.");
             await CacheFallbackFaviconAsync(item, browser);
         }
         catch (OperationCanceledException) when (_isClosing)
@@ -810,6 +824,75 @@ public partial class MainWindow : Window
         {
             _logger.LogWarning(ex, "Page icon refresh failed; trying WebView2 favicon.");
             await CacheFallbackFaviconAsync(item, browser);
+        }
+    }
+
+    private async Task CacheBrowserRootIconAsync(ToolItem item, WebView2 browser)
+    {
+        // The page's browser session can fetch sites that challenge standalone HTTP clients.
+        // Only the same-origin root favicon is requested; no cookies leave WebView2.
+        if (_isClosing || HasPreferredIcon(item) || browser.CoreWebView2 is not { } core)
+        {
+            return;
+        }
+
+        try
+        {
+            if (!Uri.TryCreate(core.Source, UriKind.Absolute, out var pageUri)
+                || (pageUri.Scheme != Uri.UriSchemeHttp && pageUri.Scheme != Uri.UriSchemeHttps))
+            {
+                return;
+            }
+
+            using var uriScope = _logger.BeginScope(new Dictionary<string, object?>
+            {
+                ["IconUri"] = GetIconLogUri(new Uri(pageUri, "/favicon.ico").AbsoluteUri)
+            });
+            _logger.LogInformation("Trying same-origin root favicon through the current browser session.");
+            var parameters = JsonSerializer.Serialize(new
+            {
+                expression = BrowserIconScript.Create(MaxIconDownloadBytes),
+                awaitPromise = true,
+                returnByValue = true,
+                timeout = 10000
+            });
+            var json = await core.CallDevToolsProtocolMethodAsync("Runtime.evaluate", parameters)
+                .WaitAsync(TimeSpan.FromSeconds(12), _lifetimeCancellation.Token);
+            var maxBase64Length = ((MaxIconDownloadBytes + 2) / 3) * 4;
+            if (json.Length > maxBase64Length + 16384)
+            {
+                _logger.LogInformation("Browser root favicon response rejected because it exceeds the byte limit.");
+                return;
+            }
+
+            using var document = JsonDocument.Parse(json);
+            if (!document.RootElement.TryGetProperty("result", out var result)
+                || !result.TryGetProperty("value", out var value)
+                || value.ValueKind != JsonValueKind.Object
+                || !value.TryGetProperty("data", out var data)
+                || data.ValueKind != JsonValueKind.String)
+            {
+                _logger.LogInformation("Browser root favicon unavailable; keeping the current icon.");
+                return;
+            }
+
+            var encoded = data.GetString()!;
+            if (encoded.Length > maxBase64Length)
+            {
+                return;
+            }
+
+            using var stream = new MemoryStream(Convert.FromBase64String(encoded));
+            var cached = await CacheIconStreamAsync(item, stream, _lifetimeCancellation.Token);
+            _logger.LogInformation("Browser root favicon refresh completed. IsCached={IsCached}", cached);
+        }
+        catch (OperationCanceledException) when (_lifetimeCancellation.IsCancellationRequested)
+        {
+            _logger.LogInformation("Browser root favicon refresh canceled.");
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Browser root favicon refresh failed; keeping the current icon.");
         }
     }
 
@@ -977,11 +1060,10 @@ public partial class MainWindow : Window
                 sourceWidth, sourceHeight, frame.PixelWidth, frame.PixelHeight);
 
             if (TryGetIconSize(cachePath, out var cachedWidth, out var cachedHeight)
-                && IsPreferredIconSize(cachedWidth, cachedHeight)
-                && !IsPreferredIconSize(frame.PixelWidth, frame.PixelHeight))
+                && IconImagePolicy.ShouldKeepExisting(cachedWidth, cachedHeight, frame.PixelWidth, frame.PixelHeight))
             {
                 _logger.LogInformation(
-                    "Keeping existing icon cache because the new icon is below the preferred size. CachePath={CachePath} CachedWidth={CachedWidth} CachedHeight={CachedHeight} NewWidth={NewWidth} NewHeight={NewHeight} PreferredIconFrameSize={PreferredIconFrameSize}",
+                    "Keeping existing icon cache because the new icon has lower resolution. CachePath={CachePath} CachedWidth={CachedWidth} CachedHeight={CachedHeight} NewWidth={NewWidth} NewHeight={NewHeight} PreferredIconFrameSize={PreferredIconFrameSize}",
                     cachePath, cachedWidth, cachedHeight, frame.PixelWidth, frame.PixelHeight, PreferredIconFrameSize);
                 if (!TryLoadIcon(cachePath, out var cachedIcon))
                 {
@@ -1073,17 +1155,7 @@ public partial class MainWindow : Window
                     IsSafe = IsSafeIconFrame(candidate)
                 }).ToArray());
 
-            var selectedFrame = decoder.Frames
-                .Where(IsSafeIconFrame)
-                .Where(candidate => IsPreferredIconSize(candidate.PixelWidth, candidate.PixelHeight))
-                .OrderBy(candidate => Math.Max(candidate.PixelWidth, candidate.PixelHeight))
-                .ThenBy(candidate => Math.Min(candidate.PixelWidth, candidate.PixelHeight))
-                .FirstOrDefault()
-                ?? decoder.Frames
-                    .Where(IsSafeIconFrame)
-                    .OrderByDescending(candidate => Math.Max(candidate.PixelWidth, candidate.PixelHeight))
-                    .ThenByDescending(candidate => Math.Min(candidate.PixelWidth, candidate.PixelHeight))
-                    .FirstOrDefault();
+            var selectedFrame = IconImagePolicy.SelectFrame(decoder.Frames);
 
             if (selectedFrame is null)
             {
@@ -1109,11 +1181,7 @@ public partial class MainWindow : Window
 
     private static bool IsSafeIconFrame(BitmapSource frame)
     {
-        return frame.PixelWidth > 0
-            && frame.PixelHeight > 0
-            && frame.PixelWidth <= MaxIconSourceDimension
-            && frame.PixelHeight <= MaxIconSourceDimension
-            && (long)frame.PixelWidth * frame.PixelHeight <= MaxIconSourcePixels;
+        return IconImagePolicy.IsSafeFrame(frame);
     }
 
     private static BitmapSource ScaleIconFrameForCache(BitmapSource frame)
@@ -1168,11 +1236,6 @@ public partial class MainWindow : Window
         }
     }
 
-    private static bool IsPreferredIconSize(int width, int height)
-    {
-        return width >= PreferredIconFrameSize && height >= PreferredIconFrameSize;
-    }
-
     private bool TryLoadIcon(string path, out BitmapImage? icon)
     {
         icon = null;
@@ -1205,9 +1268,10 @@ public partial class MainWindow : Window
             var bitmap = new BitmapImage();
             bitmap.BeginInit();
             bitmap.CacheOption = BitmapCacheOption.OnLoad;
-            if (frame.PixelWidth > PreferredIconFrameSize)
+            // Preserve cached detail for WPF's final DPI-aware render instead of resampling twice.
+            if (frame.PixelWidth > MaxCachedIconDimension)
             {
-                bitmap.DecodePixelWidth = PreferredIconFrameSize;
+                bitmap.DecodePixelWidth = MaxCachedIconDimension;
             }
 
             bitmap.StreamSource = stream;
@@ -1881,7 +1945,7 @@ public partial class MainWindow : Window
 
         var item = new ToolItem(tool);
         _toolItems.Add(item);
-        await RefreshMissingIconAsync(item);
+        await RefreshRootIconAsync(item);
     }
 
     private void OnRemoveUrlClick(object sender, RoutedEventArgs e)

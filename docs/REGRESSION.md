@@ -13,6 +13,9 @@ Use this checklist before finishing changes that touch appbar behavior, collapse
 - Clicking outside site buttons does not unexpectedly expand the web panel.
 - The app remains topmost.
 - Cached favicons display without starting WebView2; missing favicons show `IconKey` while a lightweight background request attempts to cache the site icon.
+- Cached 16 × 16 or 32 × 32 icons also trigger a background root-ICO upgrade without starting WebView2. Multi-frame ICOs select a frame of at least 48 × 48 when available, and later smaller favicons do not downgrade the cache.
+- After opening a site whose standalone icon request fails, the existing page session can fetch its same-origin root ICO. Failed, timed-out, or oversized downloads retain the current icon.
+- High-resolution icons retain their cached pixel dimensions and render at 24 × 24 DIPs on primary and secondary monitors at 125%, 150%, and 200% scaling.
 
 ## Multi-Monitor and DPI Scaling
 
