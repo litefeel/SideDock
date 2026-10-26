@@ -17,6 +17,7 @@ internal sealed class AppBarManager
 
     private readonly nint _hwnd;
     private readonly uint _callbackMessage;
+    private readonly AppBarMessageSender _sendMessage;
     private readonly ILogger<AppBarManager> _logger;
     private bool _isRegistered;
     private double _reservedWidthDips;
@@ -24,14 +25,31 @@ internal sealed class AppBarManager
     private double _windowHeightDips;
     private AppDockSide _dockSide = AppDockSide.Right;
 
-    public AppBarManager(nint hwnd, ILogger<AppBarManager>? logger = null)
+    public AppBarManager(nint hwnd, ILogger<AppBarManager>? logger = null, AppBarMessageSender? sendMessage = null)
     {
         _hwnd = hwnd;
         _logger = logger ?? AppLogging.CreateLogger<AppBarManager>();
         _callbackMessage = RegisterWindowMessage("SideDock_AppBar_Callback");
+        TaskbarCreatedMessage = RegisterWindowMessage("TaskbarCreated");
+        _sendMessage = sendMessage ?? SHAppBarMessage;
     }
 
     public uint CallbackMessage => _callbackMessage;
+    public uint TaskbarCreatedMessage { get; }
+
+    public void RestoreRegistration(
+        double reservedWidthDips,
+        double windowWidthDips,
+        double windowHeightDips,
+        AppDockSide dockSide,
+        MonitorLayout layout,
+        string reason)
+    {
+        // Explorer may have lost the registration. Remove any surviving entry too,
+        // because TaskbarCreated can also be broadcast without a shell restart.
+        Unregister(reason);
+        Register(reservedWidthDips, windowWidthDips, windowHeightDips, dockSide, layout, reason);
+    }
 
     public void Register(
         double reservedWidthDips,
@@ -50,7 +68,13 @@ internal sealed class AppBarManager
 
         var data = CreateData();
         data.uCallbackMessage = _callbackMessage;
-        var result = SHAppBarMessage(AbmNew, ref data);
+        var result = _sendMessage(AbmNew, ref data);
+        if (result == 0)
+        {
+            _logger.LogWarning("Appbar registration failed. Reason={Reason} Hwnd=0x{Hwnd:X}", reason, _hwnd);
+            return;
+        }
+
         _isRegistered = true;
         _logger.LogInformation(
             "Appbar registered. Reason={Reason} Hwnd=0x{Hwnd:X} CallbackMessage={CallbackMessage} Result={Result}",
@@ -120,7 +144,7 @@ internal sealed class AppBarManager
             ToLogRect(windowBefore),
             ToLogRect(queryBefore));
 
-        var queryResult = SHAppBarMessage(AbmQueryPos, ref data);
+        var queryResult = _sendMessage(AbmQueryPos, ref data);
         var queryAfter = data.rc;
         if (dockSide == AppDockSide.Left)
         {
@@ -132,7 +156,7 @@ internal sealed class AppBarManager
         }
 
         var setBefore = data.rc;
-        var setResult = SHAppBarMessage(AbmSetPos, ref data);
+        var setResult = _sendMessage(AbmSetPos, ref data);
         var setAfter = data.rc;
 
         var windowLeft = dockSide == AppDockSide.Left
@@ -204,7 +228,7 @@ internal sealed class AppBarManager
         }
 
         var data = CreateData();
-        var result = SHAppBarMessage(AbmRemove, ref data);
+        var result = _sendMessage(AbmRemove, ref data);
         _isRegistered = false;
         _logger.LogInformation("Appbar unregistered. Reason={Reason} Result={Result}", reason, (ulong)result);
     }
@@ -243,8 +267,10 @@ internal sealed class AppBarManager
         };
     }
 
+    internal delegate nuint AppBarMessageSender(int message, ref AppBarData data);
+
     [StructLayout(LayoutKind.Sequential)]
-    private struct AppBarData
+    internal struct AppBarData
     {
         public int cbSize;
         public nint hWnd;

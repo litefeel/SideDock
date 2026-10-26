@@ -93,6 +93,8 @@ HTTP(S) links targeting a new window, including citation links and JavaScript `w
 
 When pin is enabled, the expanded web panel is also registered as appbar space, so maximized windows avoid the full expanded width. When pin is disabled, only the icon rail reserves desktop space; the expanded web panel overlays other windows.
 
+If Windows Explorer restarts, SideDock automatically registers its appbar space again using the current display, scaling, dock side, and pin state. Recovery also preserves reserved space while SideDock is hidden for a fullscreen app.
+
 The expanded width is capped dynamically at the current screen width minus the persistent icon rail width. Dragging the resize grip saves the expanded width to `%LOCALAPPDATA%\SideDock\appsettings.json`, and the next app launch uses that saved width.
 
 The settings menu supports `Dark`, `Light`, and `System` theme modes. `Dark` and `Light` also set the embedded pages' preferred color scheme; `System` follows the Windows app theme preference.

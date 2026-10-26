@@ -3166,6 +3166,16 @@ public partial class MainWindow : Window
 
     private IntPtr WndProc(IntPtr hwnd, int msg, IntPtr wParam, IntPtr lParam, ref bool handled)
     {
+        if (_appBarManager is not null
+            && _appBarManager.TaskbarCreatedMessage != 0
+            && unchecked((uint)msg) == _appBarManager.TaskbarCreatedMessage)
+        {
+            _logger.LogInformation("Taskbar recreated. Scheduling appbar registration recovery.");
+            Dispatcher.BeginInvoke(RestoreAppbarRegistration);
+            handled = true;
+            return IntPtr.Zero;
+        }
+
         if (_appBarManager is not null && unchecked((uint)msg) == _appBarManager.CallbackMessage)
         {
             if (wParam.ToInt32() == AbnPosChanged)
@@ -3200,6 +3210,31 @@ public partial class MainWindow : Window
         }
 
         return IntPtr.Zero;
+    }
+
+    private void RestoreAppbarRegistration()
+    {
+        if (_isClosing || _appBarManager is null)
+        {
+            return;
+        }
+
+        ResolveTargetDisplay();
+        var layout = GetCurrentMonitorLayout();
+        var width = _isExpanded ? ClampExpandedWidth(GetCurrentDockWidth()) : _settings.CollapsedWidth;
+        var height = GetDockWindowHeight(layout);
+        Width = width;
+        Height = height;
+
+        // Restore reserved space even while hidden for fullscreen, without showing
+        // the window or changing the current page, pin, or expanded state.
+        _appBarManager.RestoreRegistration(
+            GetReservedWidth(width),
+            width,
+            height,
+            GetDockSide(),
+            layout,
+            "TaskbarCreated");
     }
 
     private static bool TryGetCursorPosition(out Point point)

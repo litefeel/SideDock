@@ -46,6 +46,9 @@ Use this checklist before finishing changes that touch appbar behavior, collapse
 - With pin disabled, only the icon rail reserves appbar space and the expanded panel overlays other windows.
 - Collapsing or closing from pinned mode restores the expected reserved width.
 - Changing dock side updates appbar registration and window position consistently.
+- Restarting Windows Explorer restores reserved space without restarting SideDock, in collapsed, expanded unpinned, and expanded pinned modes on either dock side.
+- Explorer restart recovery uses the selected monitor and its current DPI, including secondary monitors with negative coordinates at 125% and 150% scaling.
+- Repeated taskbar creation notifications do not lose or accumulate reserved space. Recovery during fullscreen keeps SideDock hidden and restores the reservation without recreating WebView pages.
 
 ## Fullscreen Auto-Hide
 
